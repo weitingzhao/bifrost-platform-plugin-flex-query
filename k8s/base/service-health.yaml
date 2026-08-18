@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: flex-query-health
+  labels:
+    app.kubernetes.io/name: flex-query-health
+    bifrost.flex-query/role: worker
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: flex-query-worker
+  ports:
+    - name: health
+      port: 8080
+      targetPort: health
+      protocol: TCP

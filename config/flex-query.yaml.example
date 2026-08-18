@@ -1,0 +1,26 @@
+postgres:
+  host: 192.168.10.73
+  port: 30432
+  dbname: bifrost_golden_source
+  user: bifrost
+  password: ""           # set via POSTGRES_PASSWORD env
+
+# Per-env Trade DB (Flex tokens in public.settings). Override FLEX_TRADE_PG_*.
+trade_postgres:
+  host: 192.168.10.73
+  port: 30432
+  dbname: bifrost_dev
+  user: bifrost
+  password: ""
+
+golden_source:
+  host: 192.168.10.73
+  port: 30432
+  database: bifrost_golden_source
+  user: bifrost
+  password: ""
+
+worker:
+  poll_interval_sec: 5
+
+write_token: ""          # FLEX_QUERY_WRITE_TOKEN

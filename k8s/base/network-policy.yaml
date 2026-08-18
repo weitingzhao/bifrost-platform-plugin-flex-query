@@ -1,0 +1,30 @@
+# Flex Query — egress to data NS (Postgres) + IB Flex HTTPS + DNS.
+# Ingress unrestricted (platform-api uses kube-apiserver service proxy).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flex-query-egress
+  labels:
+    app.kubernetes.io/name: flex-query
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: bifrost-flex-query
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data
+    - ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

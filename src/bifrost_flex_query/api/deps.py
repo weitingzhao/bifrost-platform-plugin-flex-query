@@ -1,0 +1,40 @@
+"""Shared FastAPI dependencies (DB + write token)."""
+
+from __future__ import annotations
+
+import os
+from typing import Any, Generator
+
+from fastapi import Header, HTTPException
+
+from bifrost_flex_query.config import load_config, postgres_connect_kwargs
+
+
+def get_write_token() -> str:
+    cfg = load_config()
+    return str(cfg.get("write_token") or os.environ.get("FLEX_QUERY_WRITE_TOKEN") or "").strip()
+
+
+def require_write_token(
+    x_flex_query_write_token: str | None = Header(default=None, alias="X-Flex-Query-Write-Token"),
+    authorization: str | None = Header(default=None),
+) -> None:
+    expected = get_write_token()
+    if not expected:
+        return
+    got = (x_flex_query_write_token or "").strip()
+    if not got and authorization and authorization.lower().startswith("bearer "):
+        got = authorization[7:].strip()
+    if got != expected:
+        raise HTTPException(status_code=401, detail="invalid write token")
+
+
+def db_conn() -> Generator[Any, None, None]:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+
+    conn = psycopg2.connect(**{**postgres_connect_kwargs(), "cursor_factory": RealDictCursor})
+    try:
+        yield conn
+    finally:
+        conn.close()

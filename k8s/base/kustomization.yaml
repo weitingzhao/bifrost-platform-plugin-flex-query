@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: plugin-flex-query
+
+resources:
+  - namespace.yaml
+  - deployment-api.yaml
+  - deployment-worker.yaml
+  - service-api.yaml
+  - service-health.yaml
+  - configmap.yaml
+  - configmap-schedule.yaml
+  - network-policy.yaml
+  - cronjob-daily.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: flex-query
+    includeSelectors: false
+
+images:
+  - name: bifrost-flex-query
+    newName: 192.168.10.73:30500/bifrost-flex-query
+    newTag: "0.1.0"

@@ -1,0 +1,8 @@
+scheduler:
+  slots:
+    flex-trades:
+      cron: "30 22 * * 1-5"
+      priority: 5
+    flex-transactions:
+      cron: "0 23 * * 1-5"
+      priority: 4

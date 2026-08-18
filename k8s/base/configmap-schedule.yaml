@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flex-query-schedule
+  labels:
+    app.kubernetes.io/name: flex-query
+data:
+  schedule.yaml: |
+    scheduler:
+      slots:
+        flex-trades:
+          cron: "30 22 * * 1-5"
+          priority: 5
+        flex-transactions:
+          cron: "0 23 * * 1-5"
+          priority: 4

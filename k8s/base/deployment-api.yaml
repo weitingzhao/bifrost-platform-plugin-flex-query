@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flex-query-api
+  labels:
+    app.kubernetes.io/name: flex-query-api
+    bifrost.flex-query/role: api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flex-query-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flex-query-api
+        bifrost.flex-query/role: api
+        app.kubernetes.io/part-of: bifrost-flex-query
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: bifrost-flex-query:0.1.0
+          imagePullPolicy: IfNotPresent
+          args: ["python", "scripts/run_api.py"]
+          env:
+            - name: FLEX_QUERY_CONFIG
+              value: /config/flex-query.yaml
+            - name: SCHEDULE_CONFIG
+              value: /config/schedule.yaml
+            - name: FLEX_QUERY_API_HOST
+              value: "0.0.0.0"
+            - name: FLEX_QUERY_API_PORT
+              value: "8791"
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: postgres-host
+                  optional: true
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: postgres-password
+                  optional: true
+            - name: FLEX_QUERY_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: write-token
+                  optional: true
+            - name: FLEX_TRADE_PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: trade-pg-host
+                  optional: true
+            - name: FLEX_TRADE_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: trade-pg-password
+                  optional: true
+          ports:
+            - name: http
+              containerPort: 8791
+          volumeMounts:
+            - name: config
+              mountPath: /config/flex-query.yaml
+              subPath: flex-query.yaml
+              readOnly: true
+            - name: schedule
+              mountPath: /config/schedule.yaml
+              subPath: schedule.yaml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+      volumes:
+        - name: config
+          configMap:
+            name: flex-query-config
+        - name: schedule
+          configMap:
+            name: flex-query-schedule

@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flex-query-worker
+  labels:
+    app.kubernetes.io/name: flex-query-worker
+    bifrost.flex-query/role: worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flex-query-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flex-query-worker
+        bifrost.flex-query/role: worker
+        app.kubernetes.io/part-of: bifrost-flex-query
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          image: bifrost-flex-query:0.1.0
+          imagePullPolicy: IfNotPresent
+          args: ["python", "scripts/run_worker.py"]
+          env:
+            - name: FLEX_QUERY_CONFIG
+              value: /config/flex-query.yaml
+            - name: FLEX_WORKER_HEALTH_PORT
+              value: "8080"
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: postgres-host
+                  optional: true
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: postgres-password
+                  optional: true
+            - name: FLEX_TRADE_PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: trade-pg-host
+                  optional: true
+            - name: FLEX_TRADE_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: trade-pg-password
+                  optional: true
+            - name: FLEX_TRADE_PG_DB
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: trade-pg-db
+                  optional: true
+          ports:
+            - name: health
+              containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /config/flex-query.yaml
+              subPath: flex-query.yaml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+      volumes:
+        - name: config
+          configMap:
+            name: flex-query-config
