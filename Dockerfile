@@ -4,12 +4,10 @@ FROM python:3.11-slim-bookworm
 WORKDIR /app
 RUN pip install --no-cache-dir --upgrade pip
 
-# Sibling packages provided via --build-context core=../bifrost-trade-core etc.
+# Sibling package provided via --build-context core=../bifrost-trade-core
 COPY --from=core pyproject.toml README.md /src/bifrost-trade-core/
 COPY --from=core src /src/bifrost-trade-core/src
-COPY --from=socket pyproject.toml README.md /src/bifrost-trade-socket/
-COPY --from=socket src /src/bifrost-trade-socket/src
-RUN pip install --no-cache-dir /src/bifrost-trade-core /src/bifrost-trade-socket
+RUN pip install --no-cache-dir /src/bifrost-trade-core
 
 COPY pyproject.toml README.md ./
 COPY src ./src

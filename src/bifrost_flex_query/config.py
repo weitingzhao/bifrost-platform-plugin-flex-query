@@ -169,7 +169,7 @@ def trade_config_for_core(
     cfg: dict[str, Any] | None = None,
     dbname: str | None = None,
 ) -> dict[str, Any]:
-    """Shape a config dict that bifrost-core StatusReader / Flex fetch can consume."""
+    """Shape a config dict that Flex orchestration / core upsert helpers can consume."""
     data = dict(cfg if cfg is not None else load_config())
     trade = dict(data.get("trade_postgres") or {})
     gs = dict(data.get("golden_source") or {})

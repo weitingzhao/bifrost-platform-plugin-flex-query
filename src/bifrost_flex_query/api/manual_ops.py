@@ -22,10 +22,7 @@ def trigger_flex_fetch(
     conn: Any = Depends(db_conn),
 ) -> dict[str, Any]:
     """Synchronously fetch Flex trades (and/or transactions) from IB Web Service."""
-    from bifrost_core.monitor.reader import StatusReader
-    from bifrost_core.portfolio.services.executions_fetch_flex import (
-        fetch_flex_trades_and_upsert_executions,
-    )
+    from bifrost_flex_query.orchestration.trades import fetch_flex_trades_and_upsert_executions
 
     payload = body or {}
     kind = str(payload.pop("kind", "trades")).strip()
@@ -34,8 +31,7 @@ def trigger_flex_fetch(
     core_cfg = trade_config_for_core(cfg)
 
     if kind == "trades":
-        reader = StatusReader(core_cfg)
-        result = fetch_flex_trades_and_upsert_executions(reader, core_cfg, payload or None)
+        result = fetch_flex_trades_and_upsert_executions(core_cfg, payload or None)
         inserted = int(result.get("count") or 0)
         if inserted > 0:
             try:
@@ -45,12 +41,11 @@ def trigger_flex_fetch(
         return result
 
     if kind == "transactions":
-        from bifrost_core.portfolio.services.transactions_fetch import (
+        from bifrost_flex_query.orchestration.transactions import (
             fetch_cash_transactions_from_flex,
         )
 
-        reader = StatusReader(core_cfg)
-        result = fetch_cash_transactions_from_flex(reader, core_cfg, payload or None)
+        result = fetch_cash_transactions_from_flex(core_cfg, payload or None)
         inserted = int(result.get("count") or result.get("inserted") or 0)
         if inserted > 0:
             try:
@@ -68,9 +63,7 @@ def upload_flex_xml(
     conn: Any = Depends(db_conn),
 ) -> dict[str, Any]:
     """Parse an uploaded Flex Trades XML and upsert into brokerage.executions_raw_flex."""
-    from bifrost_core.portfolio.services.executions_fetch_flex import (
-        upsert_executions_from_uploaded_flex_xml,
-    )
+    from bifrost_flex_query.orchestration.trades import upsert_executions_from_uploaded_flex_xml
 
     xml_str = str(body.get("xml") or "").strip()
     if not xml_str:
@@ -79,7 +72,7 @@ def upload_flex_xml(
     cfg = load_config()
     core_cfg = trade_config_for_core(cfg)
 
-    result = upsert_executions_from_uploaded_flex_xml(core_cfg, xml_str, config=core_cfg)
+    result = upsert_executions_from_uploaded_flex_xml(core_cfg, xml_str)
     inserted = int(result.get("count") or 0)
     if inserted > 0:
         try:

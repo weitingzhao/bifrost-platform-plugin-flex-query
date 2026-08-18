@@ -2,11 +2,10 @@
 
 install-dev:
 	pip install -e "../bifrost-trade-core"
-	pip install -e "../bifrost-trade-socket"
 	pip install -e ".[dev]"
 
 test:
-	pytest -q
+	PYTHONPATH=src pytest -q
 
 lint:
 	ruff check src tests scripts
@@ -24,7 +23,6 @@ kustomize-check:
 	kubectl kustomize k8s/base >/dev/null
 
 docker-build:
-	docker build -t bifrost-flex-query:0.1.1 \
+	docker build -t bifrost-flex-query:0.2.0 \
 	  --build-context core=../bifrost-trade-core \
-	  --build-context socket=../bifrost-trade-socket \
 	  -f Dockerfile .

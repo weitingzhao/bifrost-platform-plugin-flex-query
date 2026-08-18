@@ -22,7 +22,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: worker
-          image: bifrost-flex-query:0.1.1
+          image: bifrost-flex-query:0.2.0
           imagePullPolicy: IfNotPresent
           args: ["python", "scripts/run_worker.py"]
           env:

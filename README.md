@@ -22,6 +22,8 @@ make test
 
 ```
 src/bifrost_flex_query/
+  client/      # IB Flex HTTPS + XML
+  orchestration/  # trades/cash fetch, config R/W
   schema/      # flex_ops DDL
   scheduler/   # CronJob enqueue
   worker/      # claim + dispatch

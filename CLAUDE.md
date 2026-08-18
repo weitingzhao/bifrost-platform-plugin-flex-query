@@ -11,13 +11,13 @@
 | 组件 | 说明 |
 |------|------|
 | CronJob | `flex-trades` / `flex-transactions` → enqueue `flex_ops.job_flex_ingest` |
-| Worker | `SELECT FOR UPDATE SKIP LOCKED` 认领 → 调用 bifrost-core Flex orchestration |
+| Worker | `SELECT FOR UPDATE SKIP LOCKED` 认领 → 调用本包 Flex orchestration |
 | API | `:8791` — `/health`, `/flex/ingest/*`, `/flex/config/*`, `/flex/coverage/*` |
 
 ## 架构边界
 
 - **Platform core** (`bifrost-platform`): 通用环境治理 — Console proxy `/plugins/flex-query/*`
-- **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`
+- **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`；Flex HTTPS 客户端 + 编排引擎内化在 `bifrost_flex_query.client` / `orchestration`
 - **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
 - **数据**: 写 `brokerage.executions_raw_flex` / `brokerage.transactions`；队列在 `flex_ops.*`
 
@@ -25,12 +25,11 @@
 
 ```
 bifrost-flex-query
-  ├── bifrost-trade-core   (orchestration + golden_source writes)
-  └── bifrost-trade-socket (flex_client HTTPS)
+  └── bifrost-trade-core   (write_account_executions_to_db / upsert_account_transactions / connection helpers)
 ```
 
-Flex token / query_id 仍由 core `get_flex_config()` 读取
-(`settings` + `brokerage.settings_flex`)。
+Flex token / query_id 由本包 `orchestration.config_rw` 读写
+(`public.settings` + `brokerage.settings_flex`)。
 
 ## 命令
 

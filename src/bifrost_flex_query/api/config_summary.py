@@ -142,7 +142,7 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
     ``trade_postgres`` must have UPDATE on ``public.settings`` (same role that reads tokens).
     Tokens fan-out to ``trade_postgres.token_dbnames``; query rows write Golden Source once.
     """
-    from bifrost_core.monitor.reader import write_flex_config
+    from bifrost_flex_query.orchestration.config_rw import write_flex_config
 
     payload = body or {}
     if not any(key in payload for key in _WRITE_FIELDS):

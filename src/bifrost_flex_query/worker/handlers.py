@@ -1,4 +1,4 @@
-"""Thin handlers — dispatch to bifrost-core Flex orchestration."""
+"""Thin handlers — dispatch to in-package Flex orchestration."""
 
 from __future__ import annotations
 
@@ -17,24 +17,18 @@ def _require_ok(result: Mapping[str, Any] | None, *, label: str) -> dict[str, An
 
 
 def handle_flex_trades(payload: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
-    from bifrost_core.monitor.reader import StatusReader
-    from bifrost_core.portfolio.services.executions_fetch_flex import (
-        fetch_flex_trades_and_upsert_executions,
-    )
+    from bifrost_flex_query.orchestration.trades import fetch_flex_trades_and_upsert_executions
 
     core_cfg = trade_config_for_core(dict(config))
-    reader = StatusReader(core_cfg)
-    result = fetch_flex_trades_and_upsert_executions(reader, core_cfg, dict(payload))
+    result = fetch_flex_trades_and_upsert_executions(core_cfg, dict(payload))
     return _require_ok(result, label="flex-trades")
 
 
 def handle_flex_transactions(payload: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
-    from bifrost_core.monitor.reader import StatusReader
-    from bifrost_core.portfolio.services.transactions_fetch import fetch_cash_transactions_from_flex
+    from bifrost_flex_query.orchestration.transactions import fetch_cash_transactions_from_flex
 
     core_cfg = trade_config_for_core(dict(config))
-    reader = StatusReader(core_cfg)
-    result = fetch_cash_transactions_from_flex(reader, core_cfg, dict(payload))
+    result = fetch_cash_transactions_from_flex(core_cfg, dict(payload))
     return _require_ok(result, label="flex-transactions")
 
 

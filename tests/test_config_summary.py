@@ -247,7 +247,9 @@ def test_config_write_http(monkeypatch: Any) -> None:
         return True
 
     monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
-    monkeypatch.setattr("bifrost_core.monitor.reader.write_flex_config", _fake_write)
+    monkeypatch.setattr(
+        "bifrost_flex_query.orchestration.config_rw.write_flex_config", _fake_write
+    )
 
     client = TestClient(create_app())
     r = client.post(
@@ -304,7 +306,9 @@ def test_config_write_failure_http(monkeypatch: Any) -> None:
     from bifrost_flex_query.api import config_summary as mod
 
     monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
-    monkeypatch.setattr("bifrost_core.monitor.reader.write_flex_config", lambda *a, **k: False)
+    monkeypatch.setattr(
+        "bifrost_flex_query.orchestration.config_rw.write_flex_config", lambda *a, **k: False
+    )
 
     client = TestClient(create_app())
     r = client.post(
