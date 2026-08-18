@@ -7,7 +7,11 @@ from typing import Any, Generator
 
 from fastapi import Header, HTTPException
 
-from bifrost_flex_query.config import load_config, postgres_connect_kwargs
+from bifrost_flex_query.config import (
+    load_config,
+    postgres_connect_kwargs,
+    trade_postgres_connect_kwargs,
+)
 
 
 def get_write_token() -> str:
@@ -34,6 +38,19 @@ def db_conn() -> Generator[Any, None, None]:
     from psycopg2.extras import RealDictCursor
 
     conn = psycopg2.connect(**{**postgres_connect_kwargs(), "cursor_factory": RealDictCursor})
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def trade_db_conn() -> Generator[Any, None, None]:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+
+    conn = psycopg2.connect(
+        **{**trade_postgres_connect_kwargs(), "cursor_factory": RealDictCursor}
+    )
     try:
         yield conn
     finally:

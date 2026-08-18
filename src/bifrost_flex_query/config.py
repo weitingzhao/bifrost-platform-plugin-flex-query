@@ -104,6 +104,45 @@ def postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
+def trade_postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Connect kwargs for per-env Trade DB (public.settings Flex tokens)."""
+    data = cfg if cfg is not None else load_config()
+    trade = dict(data.get("trade_postgres") or {})
+    pg = dict(data.get("postgres") or {})
+    return {
+        "host": (
+            trade.get("host")
+            or os.environ.get("FLEX_TRADE_PG_HOST")
+            or pg.get("host")
+            or "localhost"
+        ),
+        "port": int(
+            trade.get("port")
+            or os.environ.get("FLEX_TRADE_PG_PORT")
+            or pg.get("port")
+            or 5432
+        ),
+        "dbname": (
+            trade.get("dbname")
+            or trade.get("database")
+            or os.environ.get("FLEX_TRADE_PG_DB")
+            or "bifrost_dev"
+        ),
+        "user": (
+            trade.get("user")
+            or os.environ.get("FLEX_TRADE_PG_USER")
+            or pg.get("user")
+            or "bifrost"
+        ),
+        "password": (
+            trade.get("password")
+            or os.environ.get("FLEX_TRADE_PG_PASSWORD")
+            or pg.get("password")
+            or ""
+        ),
+    }
+
+
 def trade_config_for_core(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Shape a config dict that bifrost-core StatusReader / Flex fetch can consume."""
     data = dict(cfg if cfg is not None else load_config())
@@ -127,5 +166,10 @@ def trade_config_for_core(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "database": pg.get("dbname") or "bifrost_golden_source",
             "user": pg.get("user"),
             "password": pg.get("password"),
+        }
+    if "ib" not in data:
+        data["ib"] = {
+            "host": {"ip": "127.0.0.1", "port_type": "tws_paper", "client_id": {}},
+            "connect_timeout": 60,
         }
     return data

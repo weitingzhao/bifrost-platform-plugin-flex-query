@@ -38,16 +38,16 @@ def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
             )
             last = cur.fetchone()
         last_job = dict(last) if last else None
-        late = False
+        adherence = "on_plan"
         if last_planned is not None:
             window_end = last_planned + timedelta(hours=2)
             if now > window_end:
                 if last_job is None:
-                    late = True
+                    adherence = "no_data"
                 else:
                     created = last_job.get("created_at")
                     if created is not None and created < last_planned:
-                        late = True
+                        adherence = "late"
         plans.append(
             {
                 "slot": slot_name,
@@ -56,7 +56,8 @@ def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
                 "last_planned_at": iso_z(last_planned),
                 "next_fires": [iso_z(t) for t in upcoming],
                 "last_job": last_job,
-                "late": late,
+                "late": adherence == "late",
+                "adherence": adherence,
             }
         )
     with conn.cursor() as cur:
