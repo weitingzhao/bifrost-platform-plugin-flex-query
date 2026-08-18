@@ -174,3 +174,80 @@ def test_config_summary_http_override() -> None:
     assert body["tokens"]["host_token_last4"] == "1234"
     assert body["tokens"]["secondary_token_last4"] == "zzzz"
     assert body["query_rows"][0]["query_secondary_id"] is None
+
+
+def test_normalize_flex_accounts_skips_empty_host() -> None:
+    from bifrost_flex_query.api.config_summary import normalize_flex_accounts
+
+    rows = normalize_flex_accounts(
+        [
+            {"query_host_id": "  ", "purpose": "trades"},
+            {
+                "query_host_id": "111",
+                "query_secondary_id": "222",
+                "query_label": "Trades",
+                "purpose": "trades",
+            },
+            "skip-me",
+        ]
+    )
+    assert len(rows) == 1
+    assert rows[0]["query_host_id"] == "111"
+    assert rows[0]["query_secondary_id"] == "222"
+    assert rows[0]["purpose"] == "trades"
+
+
+def test_config_write_http(monkeypatch: Any) -> None:
+    from bifrost_flex_query.api import config_summary as mod
+
+    captured: dict[str, Any] = {}
+
+    def _fake_write(
+        status_config: dict[str, Any],
+        host_token: str | None,
+        secondary_token: str | None,
+        accounts: list[dict[str, Any]],
+        flex_default_range_days: int | None = None,
+        flex_init_range_days: int | None = None,
+    ) -> bool:
+        captured["host_token"] = host_token
+        captured["accounts"] = accounts
+        captured["days"] = flex_default_range_days
+        captured["init"] = flex_init_range_days
+        captured["cfg"] = status_config
+        return True
+
+    monkeypatch.setattr(mod, "load_config", lambda: {"trade_postgres": {"host": "db"}})
+    monkeypatch.setattr(mod, "trade_config_for_core", lambda cfg: {**cfg, "sink": "postgres"})
+    monkeypatch.setattr("bifrost_core.monitor.reader.write_flex_config", _fake_write)
+
+    client = TestClient(create_app())
+    r = client.post(
+        "/flex/config/write",
+        json={
+            "host_token": "tok",
+            "secondary_token": "",
+            "accounts": [{"query_host_id": "999", "purpose": "trades"}],
+            "flex_default_range_days": 14,
+            "flex_init_range_days": 180,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["accounts"][0]["query_host_id"] == "999"
+    assert captured["host_token"] == "tok"
+    assert captured["days"] == 14
+    assert captured["init"] == 180
+
+
+def test_config_write_failure_http(monkeypatch: Any) -> None:
+    from bifrost_flex_query.api import config_summary as mod
+
+    monkeypatch.setattr(mod, "load_config", lambda: {})
+    monkeypatch.setattr(mod, "trade_config_for_core", lambda cfg: cfg)
+    monkeypatch.setattr("bifrost_core.monitor.reader.write_flex_config", lambda *a, **k: False)
+
+    client = TestClient(create_app())
+    r = client.post("/flex/config/write", json={"accounts": []})
+    assert r.status_code == 500

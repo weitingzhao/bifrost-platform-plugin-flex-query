@@ -1,12 +1,13 @@
-"""Read-only Flex config summary (masked tokens + query rows + range days)."""
+"""Flex config summary (read) and write (tokens + query rows + range days)."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from bifrost_flex_query.api.deps import db_conn, trade_db_conn
+from bifrost_flex_query.api.deps import db_conn, require_write_token, trade_db_conn
+from bifrost_flex_query.config import load_config, trade_config_for_core
 
 router = APIRouter(prefix="/flex/config", tags=["config"])
 
@@ -86,4 +87,71 @@ def config_summary(
         },
         "range_days": {"default": default_days, "init": init_days},
         "query_rows": query_rows,
+    }
+
+
+def _optional_days(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(1, n)
+
+
+def normalize_flex_accounts(raw: Any) -> list[dict[str, Any]]:
+    """Normalize POST /flex/config/write ``accounts`` rows (skip empty host query ids)."""
+    accounts: list[dict[str, Any]] = []
+    for a in raw or []:
+        if not isinstance(a, dict):
+            continue
+        qh = str(a.get("query_host_id") or "").strip()
+        if not qh:
+            continue
+        accounts.append(
+            {
+                "query_host_id": qh,
+                "query_secondary_id": str(a.get("query_secondary_id") or "").strip() or None,
+                "query_label": str(a.get("query_label") or "").strip() or None,
+                "purpose": str(a.get("purpose") or "cash_transactions").strip() or "cash_transactions",
+            }
+        )
+    return accounts
+
+
+@router.post("/write", dependencies=[Depends(require_write_token)])
+def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Persist Flex tokens (Trade DB ``settings``) and query rows (``brokerage.settings_flex``).
+
+    ``trade_postgres`` must have UPDATE on ``public.settings`` (same role that reads tokens).
+    """
+    from bifrost_core.monitor.reader import write_flex_config
+
+    payload = body or {}
+    accounts = normalize_flex_accounts(payload.get("accounts"))
+    host_token = payload.get("host_token")
+    secondary_token = payload.get("secondary_token")
+    default_days = _optional_days(payload.get("flex_default_range_days"))
+    init_days = _optional_days(payload.get("flex_init_range_days"))
+
+    cfg = load_config()
+    core_cfg = trade_config_for_core(cfg)
+    ok = write_flex_config(
+        core_cfg,
+        host_token if host_token is None else str(host_token),
+        secondary_token if secondary_token is None else str(secondary_token),
+        accounts,
+        default_days,
+        init_days,
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="failed to write flex config")
+    return {
+        "ok": True,
+        "host_token": (str(host_token).strip() or None) if host_token is not None else None,
+        "secondary_token": (str(secondary_token).strip() or None) if secondary_token is not None else None,
+        "accounts": accounts,
+        "flex_default_range_days": default_days,
+        "flex_init_range_days": init_days,
     }

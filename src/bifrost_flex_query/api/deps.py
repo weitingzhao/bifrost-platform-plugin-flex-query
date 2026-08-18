@@ -22,6 +22,7 @@ def get_write_token() -> str:
 def require_write_token(
     x_flex_query_write_token: str | None = Header(default=None, alias="X-Flex-Query-Write-Token"),
     authorization: str | None = Header(default=None),
+    x_bifrost_trade_gateway: str | None = Header(default=None, alias="X-Bifrost-Trade-Gateway"),
 ) -> None:
     expected = get_write_token()
     if not expected:
@@ -29,8 +30,12 @@ def require_write_token(
     got = (x_flex_query_write_token or "").strip()
     if not got and authorization and authorization.lower().startswith("bearer "):
         got = authorization[7:].strip()
-    if got != expected:
-        raise HTTPException(status_code=401, detail="invalid write token")
+    if got == expected:
+        return
+    # Trade Traefik injects this header on /api/plugin/flex-query (LAN same-origin FE).
+    if (x_bifrost_trade_gateway or "").strip() == "1":
+        return
+    raise HTTPException(status_code=401, detail="invalid write token")
 
 
 def db_conn() -> Generator[Any, None, None]:

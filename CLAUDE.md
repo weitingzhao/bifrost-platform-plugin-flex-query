@@ -12,13 +12,13 @@
 |------|------|
 | CronJob | `flex-trades` / `flex-transactions` → enqueue `flex_ops.job_flex_ingest` |
 | Worker | `SELECT FOR UPDATE SKIP LOCKED` 认领 → 调用 bifrost-core Flex orchestration |
-| API | `:8791` — `/health`, `/flex/ingest/*`, `/flex/coverage/*` |
+| API | `:8791` — `/health`, `/flex/ingest/*`, `/flex/config/*`, `/flex/coverage/*` |
 
 ## 架构边界
 
 - **Platform core** (`bifrost-platform`): 通用环境治理 — Console proxy `/plugins/flex-query/*`
 - **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`
-- **Trade** (`bifrost-trade-*`): 现有手动 Flex 按钮保持不变（走 Trade API）
+- **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
 - **数据**: 写 `brokerage.executions_raw_flex` / `brokerage.transactions`；队列在 `flex_ops.*`
 
 ## 依赖
