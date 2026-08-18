@@ -15,7 +15,7 @@ from bifrost_flex_query.api.raw_peek import router as raw_peek_router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Bifrost Flex Query Plugin", version="0.1.0")
+    app = FastAPI(title="Bifrost Flex Query Plugin", version="0.1.1")
     app.include_router(health_router)
     app.include_router(ingest_router)
     app.include_router(dashboard_router)

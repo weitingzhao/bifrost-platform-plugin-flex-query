@@ -6,10 +6,15 @@ postgres:
   password: ""           # set via POSTGRES_PASSWORD env
 
 # Per-env Trade DB (Flex tokens in public.settings). Override FLEX_TRADE_PG_*.
+# token_dbnames: Save fans out IB-level tokens to every Trade env DB.
 trade_postgres:
   host: 192.168.10.73
   port: 30432
   dbname: bifrost_dev
+  token_dbnames:
+    - bifrost_dev
+    - bifrost_stg
+    - bifrost_prod
   user: bifrost
   password: ""
 

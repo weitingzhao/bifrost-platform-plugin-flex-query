@@ -16,6 +16,10 @@ data:
       host: bifrost-postgres-rw.data.svc.cluster.local
       port: 5432
       dbname: bifrost_dev
+      token_dbnames:
+        - bifrost_dev
+        - bifrost_stg
+        - bifrost_prod
       user: bifrost
       password: ""
     golden_source:

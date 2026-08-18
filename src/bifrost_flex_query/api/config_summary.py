@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from bifrost_flex_query.api.deps import db_conn, require_write_token, trade_db_conn
-from bifrost_flex_query.config import load_config, trade_config_for_core
+from bifrost_flex_query.api.deps import db_conn, require_config_write_identity, trade_db_conn
+from bifrost_flex_query.config import load_config, trade_config_for_core, trade_token_dbnames
 
 router = APIRouter(prefix="/flex/config", tags=["config"])
 
@@ -120,33 +120,76 @@ def normalize_flex_accounts(raw: Any) -> list[dict[str, Any]]:
     return accounts
 
 
-@router.post("/write", dependencies=[Depends(require_write_token)])
+_WRITE_FIELDS = (
+    "host_token",
+    "secondary_token",
+    "accounts",
+    "flex_default_range_days",
+    "flex_init_range_days",
+)
+_TOKEN_FIELDS = (
+    "host_token",
+    "secondary_token",
+    "flex_default_range_days",
+    "flex_init_range_days",
+)
+
+
+@router.post("/write", dependencies=[Depends(require_config_write_identity)])
 def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, Any]:
     """Persist Flex tokens (Trade DB ``settings``) and query rows (``brokerage.settings_flex``).
 
     ``trade_postgres`` must have UPDATE on ``public.settings`` (same role that reads tokens).
+    Tokens fan-out to ``trade_postgres.token_dbnames``; query rows write Golden Source once.
     """
     from bifrost_core.monitor.reader import write_flex_config
 
     payload = body or {}
-    accounts = normalize_flex_accounts(payload.get("accounts"))
-    host_token = payload.get("host_token")
-    secondary_token = payload.get("secondary_token")
+    if not any(key in payload for key in _WRITE_FIELDS):
+        raise HTTPException(status_code=400, detail="empty flex config write")
+
+    accounts: list[dict[str, Any]] | None
+    if "accounts" in payload:
+        accounts = normalize_flex_accounts(payload.get("accounts"))
+        if not accounts:
+            raise HTTPException(
+                status_code=400,
+                detail="accounts must include at least one query_host_id",
+            )
+    else:
+        accounts = None
+
+    host_token = payload.get("host_token") if "host_token" in payload else None
+    secondary_token = payload.get("secondary_token") if "secondary_token" in payload else None
     default_days = _optional_days(payload.get("flex_default_range_days"))
     init_days = _optional_days(payload.get("flex_init_range_days"))
+    host_arg = None if host_token is None else str(host_token)
+    secondary_arg = None if secondary_token is None else str(secondary_token)
 
     cfg = load_config()
-    core_cfg = trade_config_for_core(cfg)
-    ok = write_flex_config(
-        core_cfg,
-        host_token if host_token is None else str(host_token),
-        secondary_token if secondary_token is None else str(secondary_token),
-        accounts,
-        default_days,
-        init_days,
-    )
-    if not ok:
-        raise HTTPException(status_code=500, detail="failed to write flex config")
+    if any(key in payload for key in _TOKEN_FIELDS):
+        for dbname in trade_token_dbnames(cfg):
+            ok = write_flex_config(
+                trade_config_for_core(cfg, dbname=dbname),
+                host_arg,
+                secondary_arg,
+                None,
+                default_days,
+                init_days,
+            )
+            if not ok:
+                raise HTTPException(status_code=500, detail="failed to write flex config")
+    if accounts is not None:
+        ok = write_flex_config(
+            trade_config_for_core(cfg),
+            None,
+            None,
+            accounts,
+            None,
+            None,
+        )
+        if not ok:
+            raise HTTPException(status_code=500, detail="failed to write flex config")
     return {
         "ok": True,
         "host_token": (str(host_token).strip() or None) if host_token is not None else None,
@@ -154,4 +197,5 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
         "accounts": accounts,
         "flex_default_range_days": default_days,
         "flex_init_range_days": init_days,
+        "token_dbnames": trade_token_dbnames(cfg) if any(key in payload for key in _TOKEN_FIELDS) else [],
     }

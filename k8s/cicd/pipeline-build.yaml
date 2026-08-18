@@ -20,7 +20,7 @@ spec:
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
     - name: image
       type: string
-      default: registry.cicd.svc.cluster.local:5000/bifrost-flex-query:0.1.0
+      default: registry.cicd.svc.cluster.local:5000/bifrost-flex-query:0.1.1
   workspaces:
     - name: source
   tasks:

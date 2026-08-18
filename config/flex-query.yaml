@@ -9,6 +9,10 @@ trade_postgres:
   host: 192.168.10.73
   port: 30432
   dbname: bifrost_dev
+  token_dbnames:
+    - bifrost_dev
+    - bifrost_stg
+    - bifrost_prod
   user: bifrost
   password: bifrost_stg
 

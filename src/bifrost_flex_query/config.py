@@ -104,6 +104,28 @@ def postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
+def trade_token_dbnames(cfg: dict[str, Any] | None = None) -> list[str]:
+    """Trade DBs that receive Flex token / range-day fan-out writes."""
+    data = cfg if cfg is not None else load_config()
+    trade = dict(data.get("trade_postgres") or {})
+    names: list[str] = []
+    raw = trade.get("token_dbnames")
+    if isinstance(raw, list):
+        for item in raw:
+            name = str(item or "").strip()
+            if name and name not in names:
+                names.append(name)
+    default = str(
+        trade.get("dbname")
+        or trade.get("database")
+        or os.environ.get("FLEX_TRADE_PG_DB")
+        or "bifrost_dev"
+    ).strip()
+    if not names:
+        return [default or "bifrost_dev"]
+    return names
+
+
 def trade_postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Connect kwargs for per-env Trade DB (public.settings Flex tokens)."""
     data = cfg if cfg is not None else load_config()
@@ -143,18 +165,22 @@ def trade_postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str
     }
 
 
-def trade_config_for_core(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+def trade_config_for_core(
+    cfg: dict[str, Any] | None = None,
+    dbname: str | None = None,
+) -> dict[str, Any]:
     """Shape a config dict that bifrost-core StatusReader / Flex fetch can consume."""
     data = dict(cfg if cfg is not None else load_config())
     trade = dict(data.get("trade_postgres") or {})
     gs = dict(data.get("golden_source") or {})
     pg = dict(data.get("postgres") or {})
     if trade:
+        db = dbname or trade.get("dbname") or trade.get("database")
         data["postgres"] = {
             "host": trade.get("host") or pg.get("host"),
             "port": trade.get("port") or pg.get("port"),
-            "database": trade.get("dbname") or trade.get("database"),
-            "dbname": trade.get("dbname") or trade.get("database"),
+            "database": db,
+            "dbname": db,
             "user": trade.get("user") or pg.get("user"),
             "password": trade.get("password") or pg.get("password"),
         }
