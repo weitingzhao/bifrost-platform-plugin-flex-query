@@ -1,7 +1,7 @@
 # bifrost-platform-plugin-flex-query
 
 Bifrost **IB Flex Query** subcontractor — scheduled Flex Web Service ingest into
-`bifrost_golden_source.brokerage.*`.
+`bifrost_golden_source.raw_broker.*`.
 
 ## Slots
 
@@ -24,7 +24,7 @@ make test
 src/bifrost_flex_query/
   client/      # IB Flex HTTPS + XML
   orchestration/  # trades/cash fetch, config R/W
-  schema/      # flex_ops DDL
+  schema/      # ops_jobs flex ingest DDL (Golden Source)
   scheduler/   # CronJob enqueue
   worker/      # claim + dispatch
   api/         # FastAPI :8791

@@ -6,11 +6,12 @@
 
 **`bifrost-flex-query`** — Bifrost Ops Platform 的 **IB Flex Query Subcontractor**。
 每天收盘后从 IB Flex Web Service 拉取 Trades / Cash Transactions，写入
-`bifrost_golden_source.brokerage.*`。
+每天收盘后从 IB Flex Web Service 拉取 Trades / Cash Transactions，写入
+`bifrost_golden_source.raw_broker.*`。
 
 | 组件 | 说明 |
 |------|------|
-| CronJob | `flex-trades` / `flex-transactions` → enqueue `flex_ops.job_flex_ingest` |
+| CronJob | `flex-trades` / `flex-transactions` → enqueue `ops_jobs.job_flex_ingest` |
 | Worker | `SELECT FOR UPDATE SKIP LOCKED` 认领 → 调用本包 Flex orchestration |
 | API | `:8791` — `/health`, `/flex/ingest/*`, `/flex/config/*`, `/flex/coverage/*` |
 
@@ -19,7 +20,8 @@
 - **Platform core** (`bifrost-platform`): 通用环境治理 — Console proxy `/plugins/flex-query/*`
 - **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`；Flex HTTPS 客户端 + 编排引擎内化在 `bifrost_flex_query.client` / `orchestration`
 - **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
-- **数据**: 写 `brokerage.executions_raw_flex` / `brokerage.transactions`；队列在 `flex_ops.*`
+- **数据**: 写 `raw_broker.executions_raw_flex` / `raw_broker.transactions`；队列在 Golden Source `ops_jobs.*`（兼容视图 `flex_ops.*`）
+- **Trade DB 仅配置**: `public.settings` Flex token；`brokerage.settings_flex` FDW 读 query id — **不在 Trade DB 建 flex_ops**
 
 ## 依赖
 
@@ -38,6 +40,10 @@ make install-dev
 make lint
 make test
 make db-init
+# Legacy Trade DB cleanup (if flex_ops was ever created on bifrost_dev):
+#   psql -U postgres -d bifrost_dev -f scripts/drop_trade_flex_ops_legacy.sql
+# Golden Source flex_ops compat views (optional, for old SQL references):
+#   psql -U postgres -d bifrost_golden_source -f scripts/golden_source_flex_ops_compat_views.sql
 make run-api    # :8791
 ```
 

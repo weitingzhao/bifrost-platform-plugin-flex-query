@@ -86,7 +86,7 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
 
 
 def postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Connect kwargs for Golden Source (flex_ops + brokerage writes via core)."""
+    """Connect kwargs for Golden Source (ops_jobs queue + raw_broker writes via core)."""
     data = cfg if cfg is not None else load_config()
     pg = dict(data.get("postgres") or {})
     gs = dict(data.get("golden_source") or {})
