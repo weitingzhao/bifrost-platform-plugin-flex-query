@@ -39,10 +39,23 @@ HANDLERS = {
 
 
 def dispatch(kind: str, payload: Mapping[str, Any], config: Mapping[str, Any], conn: Any | None = None) -> dict[str, Any]:
+    _ = conn  # claim connection is not thread-safe; freshness uses its own connection
     fn = HANDLERS.get(str(kind).strip())
     if fn is None:
         raise ValueError(f"unknown job kind: {kind!r}")
     out = fn(payload, config)
-    if conn is not None:
-        update_freshness(conn, str(kind).strip(), int(out.get("inserted") or 0))
+    _record_ingest_freshness(str(kind).strip(), int(out.get("inserted") or 0), config)
     return out
+
+
+def _record_ingest_freshness(dimension: str, row_count: int, config: Mapping[str, Any]) -> None:
+    """Write flex_ops.ingest_freshness on a dedicated connection (worker runs dispatch in a thread pool)."""
+    import psycopg2
+
+    from bifrost_flex_query.config import postgres_connect_kwargs
+
+    fresh_conn = psycopg2.connect(**{**postgres_connect_kwargs(dict(config)), "connect_timeout": 10})
+    try:
+        update_freshness(fresh_conn, dimension, row_count)
+    finally:
+        fresh_conn.close()

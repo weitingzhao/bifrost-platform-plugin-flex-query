@@ -63,9 +63,13 @@ def require_config_write_identity(
 
 def db_conn() -> Generator[Any, None, None]:
     import psycopg2
+    from fastapi import HTTPException
     from psycopg2.extras import RealDictCursor
 
-    conn = psycopg2.connect(**{**postgres_connect_kwargs(), "cursor_factory": RealDictCursor})
+    try:
+        conn = psycopg2.connect(**{**postgres_connect_kwargs(), "cursor_factory": RealDictCursor})
+    except psycopg2.OperationalError as exc:
+        raise HTTPException(status_code=503, detail=f"database unavailable: {exc}") from exc
     try:
         yield conn
     finally:
@@ -74,11 +78,15 @@ def db_conn() -> Generator[Any, None, None]:
 
 def trade_db_conn() -> Generator[Any, None, None]:
     import psycopg2
+    from fastapi import HTTPException
     from psycopg2.extras import RealDictCursor
 
-    conn = psycopg2.connect(
-        **{**trade_postgres_connect_kwargs(), "cursor_factory": RealDictCursor}
-    )
+    try:
+        conn = psycopg2.connect(
+            **{**trade_postgres_connect_kwargs(), "cursor_factory": RealDictCursor}
+        )
+    except psycopg2.OperationalError as exc:
+        raise HTTPException(status_code=503, detail=f"database unavailable: {exc}") from exc
     try:
         yield conn
     finally:

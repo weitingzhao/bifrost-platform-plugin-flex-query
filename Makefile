@@ -1,8 +1,14 @@
-.PHONY: install-dev test lint db-init run-api run-worker kustomize-check docker-build
+.PHONY: install-dev test lint db-init run-api run-worker kustomize-check docker-build sync-dev-env sync-k8s-secrets
 
 install-dev:
 	pip install -e "../bifrost-trade-core"
 	pip install -e ".[dev]"
+
+sync-dev-env:
+	bash scripts/sync_dev_env.sh
+
+sync-k8s-secrets:
+	bash scripts/sync_k8s_secrets.sh
 
 test:
 	PYTHONPATH=src pytest -q
@@ -11,10 +17,10 @@ lint:
 	ruff check src tests scripts
 
 db-init:
-	python scripts/init_schema.py
+	bash -c 'set -a; [ -f .env ] && source .env; set +a; .venv/bin/python scripts/init_schema.py'
 
 run-api:
-	python scripts/run_api.py
+	bash scripts/run_local_api.sh
 
 run-worker:
 	python scripts/run_worker.py

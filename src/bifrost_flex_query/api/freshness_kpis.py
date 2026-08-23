@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from bifrost_flex_query.api.deps import db_conn
 from bifrost_flex_query.scheduler.cronutil import iso_z, next_fires, previous_fire
 from bifrost_flex_query.scheduler.daily import SLOT_KIND, load_schedule
+from bifrost_flex_query.schema.ddl import ensure_flex_ops_schema
 
 router = APIRouter(prefix="/flex/dashboard", tags=["dashboard"])
 
@@ -57,38 +58,66 @@ def _until_label(secs: float | None) -> str:
 
 @router.get("/freshness-kpis")
 def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
+    ensure_flex_ops_schema(conn)
     now = datetime.now(timezone.utc)
 
-    last_success_at: datetime | None = None
+    freshness_rows: list[dict[str, Any]] = []
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT max(finished_at) AS ts
-            FROM flex_ops.job_flex_ingest
-            WHERE status = 'done'
+            SELECT dimension, latest_ts, row_count, updated_at
+            FROM flex_ops.ingest_freshness
+            ORDER BY dimension
             """
         )
-        row = cur.fetchone()
-        if row and row.get("ts"):
-            last_success_at = row["ts"]
+        freshness_rows = list(cur.fetchall() or [])
+
+    last_success_at: datetime | None = None
+    if freshness_rows:
+        for row in freshness_rows:
+            ts = row.get("latest_ts")
+            if ts is not None and (last_success_at is None or ts > last_success_at):
+                last_success_at = ts
+
+    if last_success_at is None:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT max(finished_at) AS ts
+                FROM flex_ops.job_flex_ingest
+                WHERE status = 'done'
+                """
+            )
+            row = cur.fetchone()
+            if row and row.get("ts"):
+                last_success_at = row["ts"]
 
     last_run_at: datetime | None = None
     last_run_status: str | None = None
     last_run_kind: str | None = None
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT kind, status, finished_at, created_at
-            FROM flex_ops.job_flex_ingest
-            ORDER BY id DESC
-            LIMIT 1
-            """
+    if freshness_rows:
+        latest_fresh = max(
+            freshness_rows,
+            key=lambda r: r.get("latest_ts") or datetime.min.replace(tzinfo=timezone.utc),
         )
-        row = cur.fetchone()
-        if row:
-            last_run_at = row.get("finished_at") or row.get("created_at")
-            last_run_status = row.get("status")
-            last_run_kind = row.get("kind")
+        last_run_at = latest_fresh.get("latest_ts")
+        last_run_kind = latest_fresh.get("dimension")
+        last_run_status = "done"
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT kind, status, finished_at, created_at
+                FROM flex_ops.job_flex_ingest
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+            if row:
+                last_run_at = row.get("finished_at") or row.get("created_at")
+                last_run_status = row.get("status")
+                last_run_kind = row.get("kind")
 
     latest_exec_ts: datetime | None = None
     exec_row_count: int | None = None
