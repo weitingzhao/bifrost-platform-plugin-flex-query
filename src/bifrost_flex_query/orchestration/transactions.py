@@ -1,4 +1,4 @@
-"""Fetch IB Flex cash transactions and upsert into brokerage.transactions."""
+"""Fetch IB Flex cash transactions and upsert into raw_broker.transactions."""
 
 from __future__ import annotations
 

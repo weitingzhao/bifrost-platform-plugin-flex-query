@@ -1,4 +1,4 @@
-"""DDL for bifrost_golden_source.flex_ops (PG-as-broker job queue)."""
+"""DDL for bifrost_golden_source.ops_jobs (Flex ingest queue + freshness)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA = "flex_ops"
+SCHEMA = "ops_jobs"
 JOB_TABLE = f"{SCHEMA}.job_flex_ingest"
-FRESHNESS_TABLE = f"{SCHEMA}.ingest_freshness"
+FRESHNESS_TABLE = f"{SCHEMA}.flex_ingest_freshness"
 
 
 def ensure_flex_ops_schema(
@@ -17,8 +17,27 @@ def ensure_flex_ops_schema(
     *,
     log: Optional[Callable[[str], None]] = None,
 ) -> None:
+    """Verify ops_jobs flex ingest tables; create only on empty DB when CREATE is granted.
+
+    Never creates legacy flex_ops schema.
+    """
     _log = log or (lambda m: logger.info("%s", m))
     with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM information_schema.tables
+            WHERE table_schema = %s
+              AND table_name IN ('job_flex_ingest', 'flex_ingest_freshness')
+            """,
+            (SCHEMA,),
+        )
+        row = cur.fetchone()
+        present = int(row[0]) if row else 0
+        if present >= 2:
+            _log(f"schema {SCHEMA} flex ingest tables present")
+            conn.commit()
+            return
+
         cur.execute(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA}")
         _log(f"schema {SCHEMA}")
         cur.execute(
@@ -64,7 +83,7 @@ def ensure_flex_ops_schema(
             )
             """
         )
-        _log("tables job_flex_ingest, ingest_freshness")
+        _log("tables job_flex_ingest, flex_ingest_freshness")
     conn.commit()
 
 

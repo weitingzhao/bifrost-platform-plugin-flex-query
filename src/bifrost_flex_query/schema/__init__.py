@@ -1,1 +1,1 @@
-"""flex_ops schema DDL (job queue + freshness on Golden Source)."""
+"""ops_jobs schema DDL (flex ingest queue + freshness on Golden Source)."""

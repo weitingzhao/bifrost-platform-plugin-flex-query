@@ -35,7 +35,7 @@ def claim_next(conn: Any) -> dict[str, Any] | None:
         cur.execute(
             """
             SELECT id, kind, payload, attempts, max_attempts
-            FROM flex_ops.job_flex_ingest
+            FROM ops_jobs.job_flex_ingest
             WHERE status = 'pending'
             ORDER BY priority DESC, created_at ASC, id ASC
             FOR UPDATE SKIP LOCKED
@@ -48,7 +48,7 @@ def claim_next(conn: Any) -> dict[str, Any] | None:
         job = _row_to_job(row)
         cur.execute(
             """
-            UPDATE flex_ops.job_flex_ingest
+            UPDATE ops_jobs.job_flex_ingest
             SET status = 'running',
                 attempts = attempts + 1,
                 started_at = now(),
@@ -66,7 +66,7 @@ def mark_done(conn: Any, job_id: int, result: Mapping[str, Any] | None = None) -
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE flex_ops.job_flex_ingest
+            UPDATE ops_jobs.job_flex_ingest
             SET status = 'done',
                 result = %s::jsonb,
                 finished_at = now(),
@@ -84,7 +84,7 @@ def mark_failed(conn: Any, job_id: int, *, error: str, attempts: int, max_attemp
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE flex_ops.job_flex_ingest
+            UPDATE ops_jobs.job_flex_ingest
             SET status = %s,
                 result = jsonb_build_object('error', %s),
                 finished_at = CASE WHEN %s THEN now() ELSE NULL END,

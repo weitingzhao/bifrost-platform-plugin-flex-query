@@ -3,7 +3,7 @@
 Fetches:
 
 - Cash Transactions (deposits/withdrawals/transfers/dividends)
-- Trades (Activity Trades report → brokerage.executions_raw_flex)
+- Trades (Activity Trades report → raw_broker.executions_raw_flex)
 
 Used by Flex Query Plugin orchestration (trigger, CronJob worker, XML upload).
 """

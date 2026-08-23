@@ -60,7 +60,7 @@ def config_summary(
             cur.execute(
                 """
                 SELECT query_host_id, query_secondary_id, query_label, purpose
-                FROM brokerage.settings_flex
+                FROM raw_broker.settings_flex
                 ORDER BY sort_order, id
                 """
             )
@@ -137,7 +137,7 @@ _TOKEN_FIELDS = (
 
 @router.post("/write", dependencies=[Depends(require_config_write_identity)])
 def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Persist Flex tokens (Trade DB ``settings``) and query rows (``brokerage.settings_flex``).
+    """Persist Flex tokens (Trade DB ``settings``) and query rows (``raw_broker.settings_flex``).
 
     ``trade_postgres`` must have UPDATE on ``public.settings`` (same role that reads tokens).
     Tokens fan-out to ``trade_postgres.token_dbnames``; query rows write Golden Source once.

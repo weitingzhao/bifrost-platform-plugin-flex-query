@@ -1,4 +1,4 @@
-"""Fetch IB Flex Trades and upsert brokerage.executions_raw_flex (or from uploaded XML)."""
+"""Fetch IB Flex Trades and upsert raw_broker.executions_raw_flex (or from uploaded XML)."""
 
 from __future__ import annotations
 

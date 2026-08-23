@@ -16,7 +16,7 @@ TableName = Literal["executions_raw_flex", "transactions"]
 
 _PEEK: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "executions_raw_flex": (
-        "brokerage.executions_raw_flex",
+        "raw_broker.executions_raw_flex",
         "exec_time",
         (
             "exec_time",
@@ -30,7 +30,7 @@ _PEEK: dict[str, tuple[str, str, tuple[str, ...]]] = {
         ),
     ),
     "transactions": (
-        "brokerage.transactions",
+        "raw_broker.transactions",
         "ts",
         ("ts", "account_id", "amount", "type", "description", "currency", "symbol"),
     ),

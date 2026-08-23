@@ -29,7 +29,7 @@ def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT id, status, created_at, finished_at, result
-                FROM flex_ops.job_flex_ingest
+                FROM ops_jobs.job_flex_ingest
                 WHERE kind = %s
                 ORDER BY id DESC
                 LIMIT 1
@@ -64,7 +64,7 @@ def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         cur.execute(
             """
             SELECT status, count(*)::int AS n
-            FROM flex_ops.job_flex_ingest
+            FROM ops_jobs.job_flex_ingest
             GROUP BY status
             """
         )

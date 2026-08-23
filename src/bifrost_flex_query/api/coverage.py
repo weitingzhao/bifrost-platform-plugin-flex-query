@@ -11,10 +11,10 @@ from bifrost_flex_query.api.deps import db_conn
 router = APIRouter(prefix="/flex/coverage", tags=["coverage"])
 
 _TABLES = (
-    ("executions_raw_flex", "brokerage.executions_raw_flex", "exec_time"),
-    ("transactions", "brokerage.transactions", "ts"),
-    ("settings_flex", "brokerage.settings_flex", None),
-    ("positions", "brokerage.positions", "updated_at"),
+    ("executions_raw_flex", "raw_broker.executions_raw_flex", "exec_time"),
+    ("transactions", "raw_broker.transactions", "ts"),
+    ("settings_flex", "raw_broker.settings_flex", None),
+    ("positions", "raw_broker.positions", "updated_at"),
 )
 
 
@@ -49,7 +49,7 @@ def freshness(conn: Any = Depends(db_conn)) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT dimension, latest_ts, row_count, updated_at
-                FROM flex_ops.ingest_freshness
+                FROM ops_jobs.flex_ingest_freshness
                 ORDER BY dimension
                 """
             )

@@ -38,7 +38,7 @@ def insert_job(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO flex_ops.job_flex_ingest
+                INSERT INTO ops_jobs.job_flex_ingest
                     (kind, payload, payload_hash, priority, status, max_attempts)
                 VALUES
                     (%s, %s::jsonb, %s, %s, 'pending', %s)
@@ -72,7 +72,7 @@ def trim_old_jobs(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                DELETE FROM flex_ops.job_flex_ingest
+                DELETE FROM ops_jobs.job_flex_ingest
                 WHERE status IN ('done', 'failed')
                   AND finished_at IS NOT NULL
                   AND finished_at < now() - (%s || ' days')::interval
@@ -82,9 +82,9 @@ def trim_old_jobs(
             deleted += int(getattr(cur, "rowcount", 0) or 0)
             cur.execute(
                 """
-                DELETE FROM flex_ops.job_flex_ingest
+                DELETE FROM ops_jobs.job_flex_ingest
                 WHERE id IN (
-                    SELECT id FROM flex_ops.job_flex_ingest
+                    SELECT id FROM ops_jobs.job_flex_ingest
                     WHERE status IN ('done', 'failed')
                     ORDER BY finished_at DESC NULLS LAST, id DESC
                     OFFSET %s

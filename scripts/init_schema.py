@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply flex_ops schema on Golden Source."""
+"""Apply ops_jobs flex ingest schema on Golden Source."""
 
 from __future__ import annotations
 

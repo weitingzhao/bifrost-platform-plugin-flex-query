@@ -1,4 +1,4 @@
-"""CronJob-driven enqueue into flex_ops.job_flex_ingest."""
+"""CronJob-driven enqueue into ops_jobs.job_flex_ingest."""
 
 from __future__ import annotations
 

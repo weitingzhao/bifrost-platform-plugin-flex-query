@@ -189,7 +189,7 @@ def write_flex_config(
     """Write Flex tokens to settings (per-env) and optionally replace GS query rows.
 
     Token columns: ``None`` leaves the column unchanged; ``""`` stores NULL.
-    ``accounts``: ``None`` does not touch ``brokerage.settings_flex``; an empty
+    ``accounts``: ``None`` does not touch ``raw_broker.settings_flex``; an empty
     list (no ``query_host_id``) is refused and does not DELETE; a non-empty list
     replaces GS rows.
     """

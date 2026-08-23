@@ -49,7 +49,7 @@ def dispatch(kind: str, payload: Mapping[str, Any], config: Mapping[str, Any], c
 
 
 def _record_ingest_freshness(dimension: str, row_count: int, config: Mapping[str, Any]) -> None:
-    """Write flex_ops.ingest_freshness on a dedicated connection (worker runs dispatch in a thread pool)."""
+    """Write ops_jobs.flex_ingest_freshness on a dedicated connection (worker runs dispatch in a thread pool)."""
     import psycopg2
 
     from bifrost_flex_query.config import postgres_connect_kwargs

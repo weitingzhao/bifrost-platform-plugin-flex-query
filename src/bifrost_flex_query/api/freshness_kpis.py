@@ -66,7 +66,7 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         cur.execute(
             """
             SELECT dimension, latest_ts, row_count, updated_at
-            FROM flex_ops.ingest_freshness
+            FROM ops_jobs.flex_ingest_freshness
             ORDER BY dimension
             """
         )
@@ -84,7 +84,7 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT max(finished_at) AS ts
-                FROM flex_ops.job_flex_ingest
+                FROM ops_jobs.job_flex_ingest
                 WHERE status = 'done'
                 """
             )
@@ -108,7 +108,7 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT kind, status, finished_at, created_at
-                FROM flex_ops.job_flex_ingest
+                FROM ops_jobs.job_flex_ingest
                 ORDER BY id DESC
                 LIMIT 1
                 """
@@ -125,7 +125,7 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT max(exec_time) AS ts, count(*)::bigint AS n "
-                "FROM brokerage.executions_raw_flex"
+                "FROM raw_broker.executions_raw_flex"
             )
             row = cur.fetchone()
             if row:
@@ -139,7 +139,7 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT max(ts) AS ts, count(*)::bigint AS n FROM brokerage.transactions"
+                "SELECT max(ts) AS ts, count(*)::bigint AS n FROM raw_broker.transactions"
             )
             row = cur.fetchone()
             if row:

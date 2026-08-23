@@ -62,7 +62,7 @@ def upload_flex_xml(
     body: dict[str, Any],
     conn: Any = Depends(db_conn),
 ) -> dict[str, Any]:
-    """Parse an uploaded Flex Trades XML and upsert into brokerage.executions_raw_flex."""
+    """Parse an uploaded Flex Trades XML and upsert into raw_broker.executions_raw_flex."""
     from bifrost_flex_query.orchestration.trades import upsert_executions_from_uploaded_flex_xml
 
     xml_str = str(body.get("xml") or "").strip()

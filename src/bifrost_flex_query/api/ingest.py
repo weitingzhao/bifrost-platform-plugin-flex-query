@@ -58,7 +58,7 @@ def list_jobs(
     sql = f"""
         SELECT id, kind, payload, status, attempts, max_attempts, result,
                created_at, started_at, finished_at
-        FROM flex_ops.job_flex_ingest
+        FROM ops_jobs.job_flex_ingest
         WHERE {' AND '.join(clauses)}
         ORDER BY id DESC
         LIMIT %s
@@ -76,7 +76,7 @@ def queue_summary(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         cur.execute(
             """
             SELECT status, count(*)::int AS n
-            FROM flex_ops.job_flex_ingest
+            FROM ops_jobs.job_flex_ingest
             GROUP BY status
             """
         )
