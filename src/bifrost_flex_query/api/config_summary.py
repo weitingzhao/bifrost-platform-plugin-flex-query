@@ -185,9 +185,10 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
     secondary_arg = None if secondary_token is None else str(secondary_token)
 
     cfg = load_config()
+    token_write_target: str | None = None
     if any(key in payload for key in _TOKEN_FIELDS):
         for dbname in trade_token_dbnames(cfg):
-            ok = write_flex_config(
+            ok, target = write_flex_config(
                 trade_config_for_core(cfg, dbname=dbname),
                 host_arg,
                 secondary_arg,
@@ -197,8 +198,10 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
             )
             if not ok:
                 raise HTTPException(status_code=500, detail="failed to write flex config")
+            if target is not None:
+                token_write_target = target
     if accounts is not None:
-        ok = write_flex_config(
+        ok, _ = write_flex_config(
             trade_config_for_core(cfg),
             None,
             None,
@@ -215,5 +218,6 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
         "accounts": accounts,
         "flex_default_range_days": default_days,
         "flex_init_range_days": init_days,
+        "token_write_target": token_write_target,
         "token_dbnames": trade_token_dbnames(cfg) if any(key in payload for key in _TOKEN_FIELDS) else [],
     }

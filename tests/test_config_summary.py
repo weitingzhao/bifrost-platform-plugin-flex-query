@@ -235,7 +235,7 @@ def test_config_write_http(monkeypatch: Any) -> None:
         accounts: list[dict[str, Any]] | None,
         flex_default_range_days: int | None = None,
         flex_init_range_days: int | None = None,
-    ) -> bool:
+    ) -> tuple[bool, str | None]:
         calls.append(
             {
                 "dbname": (status_config.get("postgres") or {}).get("dbname"),
@@ -246,7 +246,7 @@ def test_config_write_http(monkeypatch: Any) -> None:
                 "init": flex_init_range_days,
             }
         )
-        return True
+        return True, "db_fallback"
 
     monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
     monkeypatch.setattr(
@@ -309,7 +309,7 @@ def test_config_write_failure_http(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
     monkeypatch.setattr(
-        "bifrost_flex_query.orchestration.config_rw.write_flex_config", lambda *a, **k: False
+        "bifrost_flex_query.orchestration.config_rw.write_flex_config", lambda *a, **k: (False, None)
     )
 
     client = TestClient(create_app())

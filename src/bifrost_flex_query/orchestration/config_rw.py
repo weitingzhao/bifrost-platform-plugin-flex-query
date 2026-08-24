@@ -230,16 +230,21 @@ def write_flex_config(
     accounts: Optional[List[Dict[str, Any]]] = None,
     flex_default_range_days: Optional[int] = None,
     flex_init_range_days: Optional[int] = None,
-) -> bool:
+) -> tuple[bool, Optional[str]]:
     """Write Flex tokens to settings (per-env) and optionally replace GS query rows.
 
     Token columns: ``None`` leaves the column unchanged; ``""`` stores NULL.
     ``accounts``: ``None`` does not touch ``raw_broker.settings_flex``; an empty
     list (no ``query_host_id``) is refused and does not DELETE; a non-empty list
     replaces GS rows.
+
+    Returns ``(ok, token_write_target)`` where ``token_write_target`` is
+    ``secret`` when K8s Secret/env is canonical (DB token columns skipped),
+    ``db_fallback`` when tokens were written to Trade DB, or ``None`` when no
+    token fields were in the write.
     """
     if not postgres_ready(status_config):
-        return False
+        return False, None
     valid_accounts: Optional[List[Dict[str, Any]]]
     if accounts is None:
         valid_accounts = None
@@ -250,16 +255,25 @@ def write_flex_config(
             if isinstance(a, dict) and (a.get("query_host_id") or "").strip()
         ]
         if not valid_accounts:
-            return False
+            return False, None
+
+    token_write_target: Optional[str] = None
+    secret_canonical = bool(
+        (os.environ.get(_ENV_HOST_TOKEN) or "").strip()
+        or (os.environ.get(_ENV_SECONDARY_TOKEN) or "").strip()
+    )
+    token_fields_requested = host_token is not None or secondary_token is not None
 
     sets: List[str] = []
     args: List[Any] = []
-    if host_token is not None:
+    if host_token is not None and not secret_canonical:
         sets.append("ib_flex_host_token = %s")
         args.append(_flex_token_column_value(host_token))
-    if secondary_token is not None:
+    if secondary_token is not None and not secret_canonical:
         sets.append("ib_flex_secondary_token = %s")
         args.append(_flex_token_column_value(secondary_token))
+    if token_fields_requested:
+        token_write_target = "secret" if secret_canonical else "db_fallback"
     days_val = max(1, int(flex_default_range_days)) if flex_default_range_days is not None else None
     init_val = max(1, int(flex_init_range_days)) if flex_init_range_days is not None else None
     if days_val is not None:
@@ -270,7 +284,7 @@ def write_flex_config(
         args.append(init_val)
 
     if not sets and valid_accounts is None:
-        return True
+        return True, token_write_target
 
     conn = None
     golden = None
@@ -302,14 +316,15 @@ def write_flex_config(
                     )
             golden.commit()
         logger.info(
-            "write_flex_config: settings_sets=%d gs_rows=%s",
+            "write_flex_config: settings_sets=%d gs_rows=%s token_write_target=%s",
             len(sets),
             None if valid_accounts is None else len(valid_accounts),
+            token_write_target,
         )
-        return True
+        return True, token_write_target
     except Exception as e:
         logger.warning("write_flex_config failed: %s", e)
-        return False
+        return False, token_write_target
     finally:
         if conn is not None:
             conn.close()

@@ -69,8 +69,9 @@ def test_omit_tokens_does_not_null_columns() -> None:
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok = write_flex_config(CFG, None, None, None, 30, None)
+        ok, target = write_flex_config(CFG, None, None, None, 30, None)
     assert ok is True
+    assert target is None
     assert len(trade.calls) == 1
     sql, params = trade.calls[0]
     assert "ib_flex_host_token" not in sql
@@ -88,7 +89,7 @@ def test_empty_accounts_refuses_without_delete() -> None:
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok = write_flex_config(CFG, "tok", None, [])
+        ok, _ = write_flex_config(CFG, "tok", None, [])
     assert ok is False
     assert trade.calls == []
     assert gs.calls == []
@@ -99,7 +100,7 @@ def test_blank_query_host_accounts_refuses() -> None:
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok = write_flex_config(
+        ok, _ = write_flex_config(
             CFG,
             None,
             None,
@@ -114,7 +115,7 @@ def test_explicit_empty_token_writes_null() -> None:
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok = write_flex_config(CFG, "", None, None)
+        ok, _ = write_flex_config(CFG, "", None, None)
     assert ok is True
     sql, params = trade.calls[0]
     assert "ib_flex_host_token = %s" in sql
@@ -128,7 +129,7 @@ def test_accounts_replace_gs_rows() -> None:
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok = write_flex_config(
+        ok, _ = write_flex_config(
             CFG,
             "tok",
             "",
@@ -162,7 +163,7 @@ def test_nothing_to_write_is_success_noop() -> None:
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok = write_flex_config(CFG, None, None, None)
+        ok, _ = write_flex_config(CFG, None, None, None)
     assert ok is True
     assert trade.calls == []
     assert gs.calls == []
