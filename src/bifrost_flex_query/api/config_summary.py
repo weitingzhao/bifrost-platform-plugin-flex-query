@@ -35,6 +35,8 @@ def config_summary(
     sec_tok = ""
     default_days = 30
     init_days = 360
+    host_src = "none"
+    sec_src = "none"
     try:
         with trade_conn.cursor() as cur:
             cur.execute(
@@ -45,14 +47,20 @@ def config_summary(
                 """
             )
             row = cur.fetchone() or {}
-        host_tok = str(row.get("ib_flex_host_token") or "").strip()
-        sec_tok = str(row.get("ib_flex_secondary_token") or "").strip()
+        db_host = str(row.get("ib_flex_host_token") or "").strip()
+        db_sec = str(row.get("ib_flex_secondary_token") or "").strip()
+        from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
+
+        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens(db_host, db_sec)
         if row.get("flex_default_range_days") is not None:
             default_days = int(row["flex_default_range_days"])
         if row.get("flex_init_range_days") is not None:
             init_days = int(row["flex_init_range_days"])
     except Exception:
         trade_conn.rollback()
+        from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
+
+        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens("", "")
 
     query_rows: list[dict[str, Any]] = []
     try:
@@ -78,13 +86,23 @@ def config_summary(
 
     host_last4 = mask_token_last4(host_tok)
     sec_last4 = mask_token_last4(sec_tok)
+    # Overall source: secret if either token comes from env; else db if either from DB.
+    if host_src == "secret" or sec_src == "secret":
+        source = "secret"
+    elif host_src == "db" or sec_src == "db":
+        source = "db"
+    else:
+        source = "none"
     return {
         "tokens": {
             "host_token_set": host_last4 is not None,
             "host_token_last4": host_last4,
             "secondary_token_set": sec_last4 is not None,
             "secondary_token_last4": sec_last4,
+            "host_source": host_src,
+            "secondary_source": sec_src,
         },
+        "source": source,
         "range_days": {"default": default_days, "init": init_days},
         "query_rows": query_rows,
     }

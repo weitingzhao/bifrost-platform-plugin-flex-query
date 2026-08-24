@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,6 +18,46 @@ from psycopg2.extras import RealDictCursor
 logger = logging.getLogger(__name__)
 
 _EXEC_READ_TABLE = EXECUTIONS
+
+# Wave 4: prefer K8s Secret / env over Trade DB plaintext columns.
+_ENV_HOST_TOKEN = "FLEX_HOST_TOKEN"
+_ENV_SECONDARY_TOKEN = "FLEX_SECONDARY_TOKEN"
+_token_source_logged = False
+
+
+def resolve_flex_tokens(
+    db_host: Optional[str] = None,
+    db_secondary: Optional[str] = None,
+) -> Tuple[str, str, str, str]:
+    """Return (host_token, secondary_token, host_source, secondary_source).
+
+    Source is ``secret`` when env is non-empty, else ``db``, else ``none``.
+    """
+    env_host = (os.environ.get(_ENV_HOST_TOKEN) or "").strip()
+    env_sec = (os.environ.get(_ENV_SECONDARY_TOKEN) or "").strip()
+    db_host_s = (db_host or "").strip()
+    db_sec_s = (db_secondary or "").strip()
+
+    if env_host:
+        host_tok, host_src = env_host, "secret"
+    elif db_host_s:
+        host_tok, host_src = db_host_s, "db"
+    else:
+        host_tok, host_src = "", "none"
+
+    if env_sec:
+        sec_tok, sec_src = env_sec, "secret"
+    elif db_sec_s:
+        sec_tok, sec_src = db_sec_s, "db"
+    else:
+        sec_tok, sec_src = "", "none"
+
+    global _token_source_logged
+    if not _token_source_logged:
+        logger.info("flex tokens: host=%s secondary=%s", host_src, sec_src)
+        _token_source_logged = True
+
+    return host_tok, sec_tok, host_src, sec_src
 
 
 def open_trade_conn(config: dict) -> Any:
@@ -34,6 +75,9 @@ def get_flex_config(conn: Any, purpose: Optional[str] = None) -> Any:
     """If purpose is None: return { host_token, secondary_token, rows }.
 
     If purpose is set: return list of { token, query_id, role, query_label, purpose }.
+
+    Token source order (Wave 4): env FLEX_HOST_TOKEN / FLEX_SECONDARY_TOKEN →
+    settings.ib_flex_*_token (deprecated fallback) → empty.
     """
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -41,8 +85,9 @@ def get_flex_config(conn: Any, purpose: Optional[str] = None) -> Any:
                 "SELECT ib_flex_host_token, ib_flex_secondary_token FROM settings WHERE id = 1"
             )
             settings_row = cur.fetchone()
-        host_tok = (settings_row.get("ib_flex_host_token") or "").strip() if settings_row else ""
-        sec_tok = (settings_row.get("ib_flex_secondary_token") or "").strip() if settings_row else ""
+        db_host = (settings_row.get("ib_flex_host_token") or "").strip() if settings_row else ""
+        db_sec = (settings_row.get("ib_flex_secondary_token") or "").strip() if settings_row else ""
+        host_tok, sec_tok, _, _ = resolve_flex_tokens(db_host, db_sec)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if purpose is not None:
                 cur.execute(

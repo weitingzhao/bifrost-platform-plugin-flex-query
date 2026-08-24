@@ -51,6 +51,10 @@ spec:
                       name: flex-query-secrets
                       key: postgres-password
                       optional: true
+              envFrom:
+                - secretRef:
+                    name: bifrost-flex-tokens
+                    optional: true
               volumeMounts:
                 - name: config
                   mountPath: /config/flex-query.yaml
@@ -127,6 +131,10 @@ spec:
                       name: flex-query-secrets
                       key: postgres-password
                       optional: true
+              envFrom:
+                - secretRef:
+                    name: bifrost-flex-tokens
+                    optional: true
               volumeMounts:
                 - name: config
                   mountPath: /config/flex-query.yaml

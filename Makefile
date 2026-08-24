@@ -1,4 +1,4 @@
-.PHONY: install-dev test lint db-init run-api run-worker kustomize-check docker-build sync-dev-env sync-k8s-secrets
+.PHONY: install-dev test lint db-init run-api run-worker kustomize-check docker-build sync-dev-env sync-k8s-secrets sync-flex-tokens
 
 install-dev:
 	pip install -e "../bifrost-trade-core"
@@ -9,6 +9,9 @@ sync-dev-env:
 
 sync-k8s-secrets:
 	bash scripts/sync_k8s_secrets.sh
+
+sync-flex-tokens:
+	bash scripts/sync_flex_tokens.sh
 
 test:
 	PYTHONPATH=src pytest -q
@@ -29,10 +32,10 @@ kustomize-check:
 	kubectl kustomize k8s/base >/dev/null
 
 docker-build:
-	docker build --platform linux/amd64 -t bifrost-flex-query:0.2.5 \
+	docker build --platform linux/amd64 -t bifrost-flex-query:0.4.0 \
 	  --build-context core=../bifrost-trade-core \
 	  -f Dockerfile .
-	docker tag bifrost-flex-query:0.2.5 192.168.10.73:30500/bifrost-flex-query:0.2.5
-	docker tag bifrost-flex-query:0.2.5 192.168.10.73:30500/bifrost-flex-query:latest
-	docker push 192.168.10.73:30500/bifrost-flex-query:0.2.5
+	docker tag bifrost-flex-query:0.4.0 192.168.10.73:30500/bifrost-flex-query:0.4.0
+	docker tag bifrost-flex-query:0.4.0 192.168.10.73:30500/bifrost-flex-query:latest
+	docker push 192.168.10.73:30500/bifrost-flex-query:0.4.0
 	docker push 192.168.10.73:30500/bifrost-flex-query:latest

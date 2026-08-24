@@ -120,7 +120,9 @@ def test_config_summary_masks_tokens_and_query_rows() -> None:
     body = config_summary(gs_conn=gs, trade_conn=trade)
     assert body["tokens"]["host_token_set"] is True
     assert body["tokens"]["host_token_last4"] == "EN12"
-    assert "secret" not in str(body)
+    assert body["source"] == "db"
+    assert body["tokens"]["host_source"] == "db"
+    assert "secretTOKEN12" not in str(body)
     assert body["tokens"]["secondary_token_set"] is False
     assert body["tokens"]["secondary_token_last4"] is None
     assert body["range_days"] == {"default": 14, "init": 180}

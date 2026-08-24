@@ -60,6 +60,10 @@ spec:
                   name: flex-query-secrets
                   key: trade-pg-db
                   optional: true
+          envFrom:
+            - secretRef:
+                name: bifrost-flex-tokens
+                optional: true
           ports:
             - name: health
               containerPort: 8080

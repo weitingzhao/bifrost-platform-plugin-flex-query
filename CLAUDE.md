@@ -21,7 +21,18 @@
 - **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`；Flex HTTPS 客户端 + 编排引擎内化在 `bifrost_flex_query.client` / `orchestration`
 - **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
 - **数据**: 写 `raw_broker.executions_raw_flex` / `raw_broker.transactions`；队列在 Golden Source `ops_jobs.*`（兼容视图 `flex_ops.*`）
-- **Trade DB 仅配置**: `public.settings` Flex token；`brokerage.settings_flex` FDW 读 query id — **不在 Trade DB 建 flex_ops**
+- **Trade DB 仅配置**: `public.settings` Flex token（Wave 4: **deprecated fallback**）；`brokerage.settings_flex` FDW 读 query id — **不在 Trade DB 建 flex_ops**
+
+## Token source order (Wave 4 / 0.4.0)
+
+Read priority for Flex tokens:
+
+1. Env `FLEX_HOST_TOKEN` / `FLEX_SECONDARY_TOKEN` (K8s Secret `bifrost-flex-tokens`, optional `envFrom`)
+2. Trade DB `settings.ib_flex_host_token` / `ib_flex_secondary_token` (legacy plaintext fallback)
+3. Empty
+
+`GET /flex/config/summary` exposes `source` (`secret` | `db` | `none`) and per-token `host_source` / `secondary_source`.
+Write path still updates settings columns (Console UI); migrate writes to Secret in a later wave.
 
 ## 依赖
 
@@ -31,7 +42,7 @@ bifrost-flex-query
 ```
 
 Flex token / query_id 由本包 `orchestration.config_rw` 读写
-(`public.settings` + `brokerage.settings_flex`)。
+(`env` → `public.settings` fallback + `brokerage.settings_flex`)。
 
 ## 命令
 
