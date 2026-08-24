@@ -1,3 +1,6 @@
+-- DEPRECATED (Wave 6.3): flex_ops.* compat views no longer required; ops_jobs is canonical.
+-- Do not add new consumers. Script retained as audit evidence only.
+--
 -- Compatibility views on bifrost_golden_source after ops_jobs pipeline migration.
 -- Maps legacy flex_ops.* names to ops_jobs.* (Flex Query Plugin queue + freshness).
 -- Idempotent; safe to re-run.

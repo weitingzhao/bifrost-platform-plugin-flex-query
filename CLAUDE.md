@@ -20,8 +20,9 @@
 - **Platform core** (`bifrost-platform`): 通用环境治理 — Console proxy `/plugins/flex-query/*`
 - **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`；Flex HTTPS 客户端 + 编排引擎内化在 `bifrost_flex_query.client` / `orchestration`
 - **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
-- **数据**: 写 `raw_broker.executions_raw_flex` / `raw_broker.transactions`；队列在 Golden Source `ops_jobs.*`（兼容视图 `flex_ops.*`）
+- **数据**: 写 `raw_broker.executions_raw_flex` / `raw_broker.transactions`；队列在 Golden Source `ops_jobs.*`
 - **Trade DB 仅配置**: `public.settings` Flex token（Wave 4: **deprecated fallback**）；`brokerage.settings_flex` FDW 读 query id — **不在 Trade DB 建 flex_ops**
+- **flex_ops.***: **DEPRECATED** (Wave 6.3) compat views on Golden Source → use `ops_jobs.*` directly
 
 ## Token source order (Wave 4 / 0.4.0)
 
@@ -53,7 +54,7 @@ make test
 make db-init
 # Legacy Trade DB cleanup (if flex_ops was ever created on bifrost_dev):
 #   psql -U postgres -d bifrost_dev -f scripts/drop_trade_flex_ops_legacy.sql
-# Golden Source flex_ops compat views (optional, for old SQL references):
+# Golden Source flex_ops compat views (DEPRECATED Wave 6.3 — use ops_jobs.* directly)
 #   psql -U postgres -d bifrost_golden_source -f scripts/golden_source_flex_ops_compat_views.sql
 make run-api    # :8791
 ```
