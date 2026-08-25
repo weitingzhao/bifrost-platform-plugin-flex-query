@@ -1,4 +1,4 @@
-"""Wave 4: FLEX_*_TOKEN env overrides Trade DB settings columns."""
+"""Wave 11: FLEX_*_TOKEN env is the only token source."""
 
 from __future__ import annotations
 
@@ -57,50 +57,45 @@ class _Conn:
         self.rolled_back += 1
 
 
-def test_resolve_flex_tokens_env_over_db(monkeypatch) -> None:
+def test_resolve_flex_tokens_from_secret(monkeypatch) -> None:
     monkeypatch.setenv("FLEX_HOST_TOKEN", "envHostToken99")
     monkeypatch.setenv("FLEX_SECONDARY_TOKEN", "envSecToken88")
     import bifrost_flex_query.orchestration.config_rw as mod
 
     mod._token_source_logged = False
 
-    host, sec, hs, ss = resolve_flex_tokens("dbHost", "dbSec")
+    host, sec, hs, ss = resolve_flex_tokens()
     assert host == "envHostToken99"
     assert sec == "envSecToken88"
     assert hs == "secret"
     assert ss == "secret"
 
 
-def test_resolve_flex_tokens_db_fallback(monkeypatch) -> None:
+def test_resolve_flex_tokens_none_without_env(monkeypatch) -> None:
     monkeypatch.delenv("FLEX_HOST_TOKEN", raising=False)
     monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
     import bifrost_flex_query.orchestration.config_rw as mod
 
     mod._token_source_logged = False
 
-    host, sec, hs, ss = resolve_flex_tokens("dbHost", "")
-    assert host == "dbHost"
+    host, sec, hs, ss = resolve_flex_tokens()
+    assert host == ""
     assert sec == ""
-    assert hs == "db"
+    assert hs == "none"
     assert ss == "none"
 
 
-def test_get_flex_config_env_override(monkeypatch) -> None:
+def test_get_flex_config_env_only(monkeypatch) -> None:
     monkeypatch.setenv("FLEX_HOST_TOKEN", "fromEnvHOST")
     monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
     import bifrost_flex_query.orchestration.config_rw as mod
 
     mod._token_source_logged = False
 
-    conn = _Conn(
-        settings={
-            "ib_flex_host_token": "fromDB",
-            "ib_flex_secondary_token": "fromDBSec",
-        }
-    )
+    conn = _Conn(settings={})
     out = get_flex_config(conn)
     assert out["host_token"] == "fromEnvHOST"
-    assert out["secondary_token"] == "fromDBSec"
+    assert out["secondary_token"] is None
 
 
 def test_config_summary_source_secret(monkeypatch) -> None:
@@ -112,8 +107,6 @@ def test_config_summary_source_secret(monkeypatch) -> None:
 
     trade = _Conn(
         settings={
-            "ib_flex_host_token": "dbTOKEN1111",
-            "ib_flex_secondary_token": "",
             "flex_default_range_days": 30,
             "flex_init_range_days": 360,
         }

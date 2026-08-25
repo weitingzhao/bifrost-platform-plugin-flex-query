@@ -110,26 +110,40 @@ def test_blank_query_host_accounts_refuses() -> None:
     assert gs.calls == []
 
 
-def test_explicit_empty_token_writes_null() -> None:
+def test_token_write_without_secret_env_rejected(monkeypatch) -> None:
+    monkeypatch.delenv("FLEX_HOST_TOKEN", raising=False)
+    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
     trade = _Conn("trade")
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok, _ = write_flex_config(CFG, "", None, None)
+        ok, target = write_flex_config(CFG, "", None, None)
+    assert ok is False
+    assert target is None
+    assert trade.calls == []
+
+
+def test_token_write_with_secret_env_skips_db_columns(monkeypatch) -> None:
+    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
+    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
+    trade = _Conn("trade")
+    gs = _Conn("gs")
+    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
+    with p_connect, p_trade, p_gs:
+        ok, target = write_flex_config(CFG, "tok", None, None)
     assert ok is True
-    sql, params = trade.calls[0]
-    assert "ib_flex_host_token = %s" in sql
-    assert "ib_flex_secondary_token" not in sql
-    assert params == (None,)
-    assert gs.calls == []
+    assert target == "secret"
+    assert trade.calls == []
 
 
-def test_accounts_replace_gs_rows() -> None:
+def test_accounts_replace_gs_rows(monkeypatch) -> None:
+    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
+    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
     trade = _Conn("trade")
     gs = _Conn("gs")
     p_connect, p_trade, p_gs = _patch_connect(trade, gs)
     with p_connect, p_trade, p_gs:
-        ok, _ = write_flex_config(
+        ok, target = write_flex_config(
             CFG,
             "tok",
             "",
@@ -145,11 +159,12 @@ def test_accounts_replace_gs_rows() -> None:
             180,
         )
     assert ok is True
+    assert target == "secret"
+    assert len(trade.calls) == 1
     trade_sql, trade_params = trade.calls[0]
-    assert "ib_flex_host_token" in trade_sql
-    assert "ib_flex_secondary_token" in trade_sql
-    assert trade_params[0] == "tok"
-    assert trade_params[1] is None
+    assert "ib_flex_host_token" not in trade_sql
+    assert "flex_default_range_days" in trade_sql
+    assert trade_params == (14, 180)
     assert any("DELETE FROM" in sql for sql, _ in gs.calls)
     insert = [c for c in gs.calls if "INSERT INTO" in c[0]]
     assert len(insert) == 1

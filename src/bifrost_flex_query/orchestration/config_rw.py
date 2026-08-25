@@ -25,32 +25,18 @@ _ENV_SECONDARY_TOKEN = "FLEX_SECONDARY_TOKEN"
 _token_source_logged = False
 
 
-def resolve_flex_tokens(
-    db_host: Optional[str] = None,
-    db_secondary: Optional[str] = None,
-) -> Tuple[str, str, str, str]:
+def resolve_flex_tokens() -> Tuple[str, str, str, str]:
     """Return (host_token, secondary_token, host_source, secondary_source).
 
-    Source is ``secret`` when env is non-empty, else ``db``, else ``none``.
+    Wave 11: tokens only from K8s Secret / env (`secret` | `none`).
     """
     env_host = (os.environ.get(_ENV_HOST_TOKEN) or "").strip()
     env_sec = (os.environ.get(_ENV_SECONDARY_TOKEN) or "").strip()
-    db_host_s = (db_host or "").strip()
-    db_sec_s = (db_secondary or "").strip()
 
-    if env_host:
-        host_tok, host_src = env_host, "secret"
-    elif db_host_s:
-        host_tok, host_src = db_host_s, "db"
-    else:
-        host_tok, host_src = "", "none"
-
-    if env_sec:
-        sec_tok, sec_src = env_sec, "secret"
-    elif db_sec_s:
-        sec_tok, sec_src = db_sec_s, "db"
-    else:
-        sec_tok, sec_src = "", "none"
+    host_tok = env_host
+    host_src = "secret" if env_host else "none"
+    sec_tok = env_sec
+    sec_src = "secret" if env_sec else "none"
 
     global _token_source_logged
     if not _token_source_logged:
@@ -76,18 +62,10 @@ def get_flex_config(conn: Any, purpose: Optional[str] = None) -> Any:
 
     If purpose is set: return list of { token, query_id, role, query_label, purpose }.
 
-    Token source order (Wave 4): env FLEX_HOST_TOKEN / FLEX_SECONDARY_TOKEN →
-    settings.ib_flex_*_token (deprecated fallback) → empty.
+    Token source (Wave 11): env FLEX_HOST_TOKEN / FLEX_SECONDARY_TOKEN only.
     """
     try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT ib_flex_host_token, ib_flex_secondary_token FROM settings WHERE id = 1"
-            )
-            settings_row = cur.fetchone()
-        db_host = (settings_row.get("ib_flex_host_token") or "").strip() if settings_row else ""
-        db_sec = (settings_row.get("ib_flex_secondary_token") or "").strip() if settings_row else ""
-        host_tok, sec_tok, _, _ = resolve_flex_tokens(db_host, db_sec)
+        host_tok, sec_tok, _, _ = resolve_flex_tokens()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if purpose is not None:
                 cur.execute(
@@ -231,17 +209,14 @@ def write_flex_config(
     flex_default_range_days: Optional[int] = None,
     flex_init_range_days: Optional[int] = None,
 ) -> tuple[bool, Optional[str]]:
-    """Write Flex tokens to settings (per-env) and optionally replace GS query rows.
+    """Write Flex range days to settings and optionally replace GS query rows.
 
-    Token columns: ``None`` leaves the column unchanged; ``""`` stores NULL.
-    ``accounts``: ``None`` does not touch ``raw_broker.settings_flex``; an empty
-    list (no ``query_host_id``) is refused and does not DELETE; a non-empty list
-    replaces GS rows.
+    Token writes require K8s Secret env (`FLEX_HOST_TOKEN` / `FLEX_SECONDARY_TOKEN`);
+    Trade DB token columns were dropped in Wave 11.
 
     Returns ``(ok, token_write_target)`` where ``token_write_target`` is
-    ``secret`` when K8s Secret/env is canonical (DB token columns skipped),
-    ``db_fallback`` when tokens were written to Trade DB, or ``None`` when no
-    token fields were in the write.
+    ``secret`` when Secret/env is canonical, or ``None`` when no token fields
+    were in the write.
     """
     if not postgres_ready(status_config):
         return False, None
@@ -264,16 +239,14 @@ def write_flex_config(
     )
     token_fields_requested = host_token is not None or secondary_token is not None
 
+    if token_fields_requested and not secret_canonical:
+        logger.warning("write_flex_config: token write rejected — configure K8s Secret env")
+        return False, None
+
     sets: List[str] = []
     args: List[Any] = []
-    if host_token is not None and not secret_canonical:
-        sets.append("ib_flex_host_token = %s")
-        args.append(_flex_token_column_value(host_token))
-    if secondary_token is not None and not secret_canonical:
-        sets.append("ib_flex_secondary_token = %s")
-        args.append(_flex_token_column_value(secondary_token))
-    if token_fields_requested:
-        token_write_target = "secret" if secret_canonical else "db_fallback"
+    if token_fields_requested and secret_canonical:
+        token_write_target = "secret"
     days_val = max(1, int(flex_default_range_days)) if flex_default_range_days is not None else None
     init_val = max(1, int(flex_init_range_days)) if flex_init_range_days is not None else None
     if days_val is not None:

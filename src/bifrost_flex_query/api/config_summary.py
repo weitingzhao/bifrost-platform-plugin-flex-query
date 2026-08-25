@@ -38,20 +38,17 @@ def config_summary(
     host_src = "none"
     sec_src = "none"
     try:
+        from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
+
+        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens()
         with trade_conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT ib_flex_host_token, ib_flex_secondary_token,
-                       flex_default_range_days, flex_init_range_days
+                SELECT flex_default_range_days, flex_init_range_days
                 FROM settings WHERE id = 1
                 """
             )
             row = cur.fetchone() or {}
-        db_host = str(row.get("ib_flex_host_token") or "").strip()
-        db_sec = str(row.get("ib_flex_secondary_token") or "").strip()
-        from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
-
-        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens(db_host, db_sec)
         if row.get("flex_default_range_days") is not None:
             default_days = int(row["flex_default_range_days"])
         if row.get("flex_init_range_days") is not None:
@@ -60,7 +57,7 @@ def config_summary(
         trade_conn.rollback()
         from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
 
-        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens("", "")
+        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens()
 
     query_rows: list[dict[str, Any]] = []
     try:
@@ -86,11 +83,8 @@ def config_summary(
 
     host_last4 = mask_token_last4(host_tok)
     sec_last4 = mask_token_last4(sec_tok)
-    # Overall source: secret if either token comes from env; else db if either from DB.
     if host_src == "secret" or sec_src == "secret":
         source = "secret"
-    elif host_src == "db" or sec_src == "db":
-        source = "db"
     else:
         source = "none"
     return {

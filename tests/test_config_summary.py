@@ -92,11 +92,15 @@ def test_trade_postgres_connect_kwargs_from_cfg() -> None:
     assert kw["password"] == "x"
 
 
-def test_config_summary_masks_tokens_and_query_rows() -> None:
+def test_config_summary_masks_tokens_and_query_rows(monkeypatch) -> None:
+    monkeypatch.delenv("FLEX_HOST_TOKEN", raising=False)
+    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
+    import bifrost_flex_query.orchestration.config_rw as mod
+
+    mod._token_source_logged = False
+
     trade = _Conn(
         settings={
-            "ib_flex_host_token": "secretTOKEN12",
-            "ib_flex_secondary_token": "",
             "flex_default_range_days": 14,
             "flex_init_range_days": 180,
         }
@@ -118,11 +122,9 @@ def test_config_summary_masks_tokens_and_query_rows() -> None:
         ]
     )
     body = config_summary(gs_conn=gs, trade_conn=trade)
-    assert body["tokens"]["host_token_set"] is True
-    assert body["tokens"]["host_token_last4"] == "EN12"
-    assert body["source"] == "db"
-    assert body["tokens"]["host_source"] == "db"
-    assert "secretTOKEN12" not in str(body)
+    assert body["tokens"]["host_token_set"] is False
+    assert body["source"] == "none"
+    assert body["tokens"]["host_source"] == "none"
     assert body["tokens"]["secondary_token_set"] is False
     assert body["tokens"]["secondary_token_last4"] is None
     assert body["range_days"] == {"default": 14, "init": 180}
@@ -142,7 +144,13 @@ def test_config_summary_empty_on_query_error() -> None:
     assert body["range_days"]["default"] == 30
 
 
-def test_config_summary_http_override() -> None:
+def test_config_summary_http_override(monkeypatch) -> None:
+    monkeypatch.setenv("FLEX_HOST_TOKEN", "abcd1234")
+    monkeypatch.setenv("FLEX_SECONDARY_TOKEN", "zzzz")
+    import bifrost_flex_query.orchestration.config_rw as mod
+
+    mod._token_source_logged = False
+
     app = create_app()
 
     def _gs() -> Any:
@@ -160,8 +168,6 @@ def test_config_summary_http_override() -> None:
     def _trade() -> Any:
         yield _Conn(
             settings={
-                "ib_flex_host_token": "abcd1234",
-                "ib_flex_secondary_token": "zzzz",
                 "flex_default_range_days": 30,
                 "flex_init_range_days": 360,
             }
@@ -173,6 +179,7 @@ def test_config_summary_http_override() -> None:
     r = client.get("/flex/config/summary")
     assert r.status_code == 200
     body = r.json()
+    assert body["source"] == "secret"
     assert body["tokens"]["host_token_last4"] == "1234"
     assert body["tokens"]["secondary_token_last4"] == "zzzz"
     assert body["query_rows"][0]["query_secondary_id"] is None
@@ -246,7 +253,7 @@ def test_config_write_http(monkeypatch: Any) -> None:
                 "init": flex_init_range_days,
             }
         )
-        return True, "db_fallback"
+        return True, "secret"
 
     monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
     monkeypatch.setattr(

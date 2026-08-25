@@ -24,16 +24,14 @@
 - **Trade DB 仅配置**: `public.settings` Flex token（Wave 4: **deprecated fallback**）；`brokerage.settings_flex` FDW 读 query id — **不在 Trade DB 建 flex_ops**
 - **flex_ops.***: **DEPRECATED** (Wave 6.3) compat views on Golden Source → use `ops_jobs.*` directly
 
-## Token source order (Wave 4 / 0.4.0)
+## Token source (Wave 11 / 0.5.0)
 
 Read priority for Flex tokens:
 
-1. Env `FLEX_HOST_TOKEN` / `FLEX_SECONDARY_TOKEN` (K8s Secret `bifrost-flex-tokens`, optional `envFrom`)
-2. Trade DB `settings.ib_flex_host_token` / `ib_flex_secondary_token` (legacy plaintext fallback)
-3. Empty
+1. Env `FLEX_HOST_TOKEN` / `FLEX_SECONDARY_TOKEN` (K8s Secret `bifrost-flex-tokens`, `envFrom`)
+2. Empty (`none`)
 
-`GET /flex/config/summary` exposes `source` (`secret` | `db` | `none`) and per-token `host_source` / `secondary_source`.
-Write path still updates settings columns (Console UI); migrate writes to Secret in a later wave.
+`GET /flex/config/summary` exposes `source` (`secret` | `none`). Token writes via `/flex/config/write` require Secret env; Trade DB token columns were dropped in core **0.18.0**.
 
 ## 依赖
 
@@ -42,8 +40,7 @@ bifrost-flex-query
   └── bifrost-trade-core   (write_account_executions_to_db / upsert_account_transactions / connection helpers)
 ```
 
-Flex token / query_id 由本包 `orchestration.config_rw` 读写
-(`env` → `public.settings` fallback + `brokerage.settings_flex`)。
+Flex token / query_id 由本包 `orchestration.config_rw` 读写（env Secret + `brokerage.settings_flex` query rows）。
 
 ## 命令
 
