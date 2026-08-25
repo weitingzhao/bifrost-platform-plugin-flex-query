@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import psycopg2
-from bifrost_core.persistence.postgres.brokerage_tables import EXECUTIONS, SETTINGS_FLEX
+from bifrost_core.persistence.postgres.brokerage_tables import EXECUTIONS, GOLDEN_SETTINGS_FLEX, SETTINGS_FLEX
 from bifrost_core.persistence.postgres.connection import (
     _get_conn_params,
     _get_golden_source_conn_params,
@@ -47,8 +47,15 @@ def resolve_flex_tokens() -> Tuple[str, str, str, str]:
 
 
 def open_trade_conn(config: dict) -> Any:
-    """Open a psycopg2 connection to the Trade env DB (public.settings + FDW)."""
-    return psycopg2.connect(**_get_conn_params(config))
+    """Open a psycopg2 connection to the Trade env DB (settings_flex query ids)."""
+    from bifrost_flex_query.config import trade_postgres_connect_kwargs
+
+    # Prefer explicit trade_postgres kwargs so a mis-shaped core config cannot
+    # accidentally open Golden Source / empty-password connections.
+    try:
+        return psycopg2.connect(**trade_postgres_connect_kwargs(config))
+    except Exception:
+        return psycopg2.connect(**_get_conn_params(config))
 
 
 def postgres_ready(config: Optional[dict]) -> bool:
@@ -124,7 +131,11 @@ def get_flex_config(conn: Any, purpose: Optional[str] = None) -> Any:
             out_rows.append(item)
         return {"host_token": host_tok or None, "secondary_token": sec_tok or None, "rows": out_rows}
     except Exception as e:
-        logger.debug("get_flex_config failed: %s", e)
+        logger.warning("get_flex_config failed: %s", e)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return [] if purpose is not None else {"host_token": None, "secondary_token": None, "rows": []}
 
 
@@ -275,14 +286,14 @@ def write_flex_config(
             gs_params = _get_golden_source_conn_params(status_config)
             golden = psycopg2.connect(**{**gs_params, "connect_timeout": 10})
             with golden.cursor() as cur:
-                cur.execute(f"DELETE FROM {SETTINGS_FLEX}")
+                cur.execute(f"DELETE FROM {GOLDEN_SETTINGS_FLEX}")
                 for i, a in enumerate(valid_accounts):
                     qh = (a.get("query_host_id") or "").strip()
                     qs = (a.get("query_secondary_id") or "").strip() or None
                     query_label = (a.get("query_label") or "").strip() or None
                     purpose = (a.get("purpose") or "cash_transactions").strip() or "cash_transactions"
                     cur.execute(
-                        f"INSERT INTO {SETTINGS_FLEX} "
+                        f"INSERT INTO {GOLDEN_SETTINGS_FLEX} "
                         f"(sort_order, query_label, purpose, query_host_id, query_secondary_id) "
                         f"VALUES (%s, %s, %s, %s, %s)",
                         (i, query_label, purpose, qh, qs),

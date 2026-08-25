@@ -43,8 +43,10 @@ def fetch_cash_transactions_from_flex(
             return {
                 "ok": False,
                 "error": (
-                    "No Flex credentials: configure in Settings → IB Connection → Flex "
-                    "(token and query_id with purpose cash_transactions)."
+                    "No Flex credentials for cash_transactions: set FLEX_HOST_TOKEN / "
+                    "FLEX_SECONDARY_TOKEN (K8s Secret bifrost-flex-tokens) and "
+                    "purpose=cash_transactions query_id rows "
+                    "(Settings → IB Connection → Flex Query IDs, or Ops Console Flex Plugin)."
                 ),
                 "count": 0,
             }

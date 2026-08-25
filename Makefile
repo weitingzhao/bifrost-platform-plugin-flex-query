@@ -32,10 +32,10 @@ kustomize-check:
 	kubectl kustomize k8s/base >/dev/null
 
 docker-build:
-	docker build --platform linux/amd64 -t bifrost-flex-query:0.4.0 \
+	docker build --platform linux/amd64 -t bifrost-flex-query:0.5.1 \
 	  --build-context core=../bifrost-trade-core \
 	  -f Dockerfile .
-	docker tag bifrost-flex-query:0.4.0 192.168.10.73:30500/bifrost-flex-query:0.4.0
-	docker tag bifrost-flex-query:0.4.0 192.168.10.73:30500/bifrost-flex-query:latest
-	docker push 192.168.10.73:30500/bifrost-flex-query:0.4.0
+	docker tag bifrost-flex-query:0.5.1 192.168.10.73:30500/bifrost-flex-query:0.5.1
+	docker tag bifrost-flex-query:0.5.1 192.168.10.73:30500/bifrost-flex-query:latest
+	docker push 192.168.10.73:30500/bifrost-flex-query:0.5.1
 	docker push 192.168.10.73:30500/bifrost-flex-query:latest

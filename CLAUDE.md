@@ -24,7 +24,7 @@
 - **Trade DB 仅配置**: `public.settings` Flex token（Wave 4: **deprecated fallback**）；`brokerage.settings_flex` FDW 读 query id — **不在 Trade DB 建 flex_ops**
 - **flex_ops.***: **DEPRECATED** (Wave 6.3) compat views on Golden Source → use `ops_jobs.*` directly
 
-## Token source (Wave 11 / 0.5.0)
+## Token source (Wave 11 / 0.5.1)
 
 Read priority for Flex tokens:
 

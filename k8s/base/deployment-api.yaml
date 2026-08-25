@@ -22,7 +22,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: api
-          image: bifrost-flex-query:0.5.0
+          image: bifrost-flex-query:0.5.1
           imagePullPolicy: IfNotPresent
           args: ["python", "scripts/run_api.py"]
           env:

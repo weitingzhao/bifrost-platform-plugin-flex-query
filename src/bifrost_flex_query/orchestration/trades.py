@@ -126,8 +126,9 @@ def fetch_flex_trades_and_upsert_executions(
                 entries.append({"token": tok, "query_id": qid, "role": role, "query_label": label})
         if not entries:
             err = (
-                "No Flex credentials for trades: configure in Settings → IB Connection → Flex "
-                "(token and query_id with purpose=trades)."
+                "No Flex credentials for trades: set FLEX_HOST_TOKEN / FLEX_SECONDARY_TOKEN "
+                "(K8s Secret bifrost-flex-tokens) and purpose=trades query_id rows "
+                "(Settings → IB Connection → Flex Query IDs, or Ops Console Flex Plugin)."
             )
             publish_flex_executions_system_message(
                 config,
