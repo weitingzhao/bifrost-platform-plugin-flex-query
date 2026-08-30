@@ -22,7 +22,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: api
-          image: bifrost-flex-query:0.5.1
+          image: bifrost-flex-query:0.5.2
           imagePullPolicy: IfNotPresent
           args: ["python", "scripts/run_api.py"]
           env:
@@ -67,7 +67,7 @@ spec:
           envFrom:
             - secretRef:
                 name: bifrost-flex-tokens
-                optional: true
+                optional: false
           ports:
             - name: http
               containerPort: 8791

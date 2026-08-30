@@ -111,6 +111,18 @@ def main(argv: list[str] | None = None) -> int:
         raise last_err if last_err is not None else RuntimeError("postgres connect failed")
     try:
         ensure_flex_ops_schema(conn)
+        # Fail-closed: never enqueue when Flex credentials are missing (K8s Job
+        # Complete must not mask an empty Secret).
+        from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
+
+        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens()
+        if not host_tok and not sec_tok:
+            logger.error(
+                "flex tokens missing (host=%s secondary=%s) — refuse enqueue",
+                host_src,
+                sec_src,
+            )
+            return 1
         result = enqueue_slot(conn, args.slot, scheduler_cfg=scheduler_cfg)
     finally:
         conn.close()

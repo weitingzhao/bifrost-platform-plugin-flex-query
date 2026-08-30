@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
 SCHEMA = "ops_jobs"
 JOB_TABLE = f"{SCHEMA}.job_flex_ingest"
 FRESHNESS_TABLE = f"{SCHEMA}.flex_ingest_freshness"
+
+
+def _scalar(row: Any) -> int:
+    """First column from tuple or RealDictCursor row."""
+    if row is None:
+        return 0
+    if isinstance(row, Mapping):
+        return int(next(iter(row.values())))
+    return int(row[0])
 
 
 def ensure_flex_ops_schema(
@@ -32,7 +41,7 @@ def ensure_flex_ops_schema(
             (SCHEMA,),
         )
         row = cur.fetchone()
-        present = int(row[0]) if row else 0
+        present = _scalar(row)
         if present >= 2:
             _log(f"schema {SCHEMA} flex ingest tables present")
             conn.commit()

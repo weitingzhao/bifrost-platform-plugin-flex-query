@@ -3,6 +3,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: flex-query-trades
+  namespace: plugin-flex-query
   labels:
     app.kubernetes.io/name: flex-query-trades
     app.kubernetes.io/part-of: bifrost-flex-query
@@ -10,6 +11,8 @@ metadata:
 spec:
   schedule: "30 22 * * 1-5"
   timeZone: UTC
+  # Suspended: Dagster research_trading_day / plugin_batch owns this slot
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -26,7 +29,7 @@ spec:
           restartPolicy: Never
           containers:
             - name: scheduler
-              image: 192.168.10.73:30500/bifrost-flex-query:0.5.1
+              image: 192.168.10.73:30500/bifrost-flex-query:0.5.2
               imagePullPolicy: IfNotPresent
               args:
                 - python
@@ -54,7 +57,7 @@ spec:
               envFrom:
                 - secretRef:
                     name: bifrost-flex-tokens
-                    optional: true
+                    optional: false
               volumeMounts:
                 - name: config
                   mountPath: /config/flex-query.yaml
@@ -83,6 +86,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: flex-query-transactions
+  namespace: plugin-flex-query
   labels:
     app.kubernetes.io/name: flex-query-transactions
     app.kubernetes.io/part-of: bifrost-flex-query
@@ -90,6 +94,8 @@ metadata:
 spec:
   schedule: "0 23 * * 1-5"
   timeZone: UTC
+  # Suspended: Dagster research_trading_day / plugin_batch owns this slot
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -106,7 +112,7 @@ spec:
           restartPolicy: Never
           containers:
             - name: scheduler
-              image: 192.168.10.73:30500/bifrost-flex-query:0.5.1
+              image: 192.168.10.73:30500/bifrost-flex-query:0.5.2
               imagePullPolicy: IfNotPresent
               args:
                 - python
@@ -134,7 +140,7 @@ spec:
               envFrom:
                 - secretRef:
                     name: bifrost-flex-tokens
-                    optional: true
+                    optional: false
               volumeMounts:
                 - name: config
                   mountPath: /config/flex-query.yaml
