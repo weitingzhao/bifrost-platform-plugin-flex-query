@@ -1,24 +1,31 @@
-"""Unit tests for SKIP LOCKED claim helpers."""
-
 from __future__ import annotations
 
 from typing import Any
 
-from bifrost_flex_query.worker.claim import claim_next, mark_done, mark_failed
+from bifrost_flex_query.worker.claim import claim_next, mark_done, mark_failed, reclaim_stale_running
 
 
 class _FakeCursor:
     def __init__(self, fetch_results: list[Any]) -> None:
         self.fetch_results = list(fetch_results)
         self.statements: list[tuple[str, Any]] = []
+        self._returning: list[Any] = []
 
     def execute(self, query: str, params: Any = None) -> None:
         self.statements.append((query, params))
+        if "RETURNING id" in query and params is not None:
+            # Simulate reclaim returning one stale id when tests set fetch_results.
+            self._returning = list(self.fetch_results)
 
     def fetchone(self) -> Any:
         if not self.fetch_results:
             return None
         return self.fetch_results.pop(0)
+
+    def fetchall(self) -> list[Any]:
+        out = list(self._returning)
+        self._returning = []
+        return out
 
     def __enter__(self) -> _FakeCursor:
         return self
@@ -70,3 +77,15 @@ def test_mark_failed_retries_then_fails() -> None:
     conn2 = _FakeConn()
     mark_failed(conn2, 7, error="boom", attempts=3, max_attempts=3)
     assert conn2.cur.statements[0][1][0] == "failed"
+
+
+def test_reclaim_stale_running() -> None:
+    conn = _FakeConn([(23,)])
+    ids = reclaim_stale_running(conn, stale_after_sec=3600)
+    assert ids == [23]
+    assert conn.committed
+    sql, params = conn.cur.statements[0]
+    assert "status = 'running'" in sql
+    assert "make_interval" in sql
+    assert params[1] == 3600
+    assert "stale running reclaimed" in params[0]

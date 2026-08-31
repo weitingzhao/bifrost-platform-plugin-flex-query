@@ -24,4 +24,4 @@ labels:
 images:
   - name: bifrost-flex-query
     newName: 192.168.10.73:30500/bifrost-flex-query
-    newTag: "0.5.2"
+    newTag: "0.5.3"

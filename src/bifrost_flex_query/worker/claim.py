@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Mapping
+
+logger = logging.getLogger(__name__)
+
+# Flex IB calls can run many minutes; zombies after worker crash sit for hours/days.
+DEFAULT_STALE_RUNNING_SEC = 7200
 
 
 def _row_to_job(row: Any) -> dict[str, Any]:
@@ -60,6 +66,49 @@ def claim_next(conn: Any) -> dict[str, Any] | None:
     conn.commit()
     job["attempts"] = int(job["attempts"]) + 1
     return job
+
+
+def reclaim_stale_running(
+    conn: Any,
+    *,
+    stale_after_sec: int = DEFAULT_STALE_RUNNING_SEC,
+) -> list[int]:
+    """Fail ``running`` jobs older than ``stale_after_sec`` (worker crash / lost claim).
+
+    Does not auto-requeue — operator / Dagster / Console enqueue again after IB cool-down.
+    Returns reclaimed job ids.
+    """
+    sec = max(60, int(stale_after_sec))
+    msg = (
+        f"stale running reclaimed after {sec}s — worker likely restarted mid-job; "
+        "re-enqueue after checking IB rate limits ([1018])"
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE ops_jobs.job_flex_ingest
+            SET status = 'failed',
+                result = jsonb_build_object('error', %s),
+                finished_at = now(),
+                updated_at = now()
+            WHERE status = 'running'
+              AND COALESCE(started_at, created_at, updated_at)
+                  < now() - make_interval(secs => %s)
+            RETURNING id
+            """,
+            (msg[:2000], sec),
+        )
+        rows = cur.fetchall() or []
+    conn.commit()
+    ids: list[int] = []
+    for row in rows:
+        if isinstance(row, Mapping):
+            ids.append(int(row["id"]))
+        else:
+            ids.append(int(row[0]))
+    if ids:
+        logger.warning("reclaimed stale running flex jobs: %s", ids)
+    return ids
 
 
 def mark_done(conn: Any, job_id: int, result: Mapping[str, Any] | None = None) -> None:
