@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1.4
+# No `# syntax=docker/dockerfile:1.4` line: resolving that frontend needs Docker
+# Hub at build time and timed out on 2026-09-06; the built-in BuildKit frontend
+# already understands the named build context used below.
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
