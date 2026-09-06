@@ -21,6 +21,27 @@ def test_is_flex_statement_unavailable() -> None:
     assert not _is_flex_statement_unavailable(ValueError("Flex request failed: [1015] Token is invalid."))
 
 
+def test_scheduled_run_does_not_widen_on_1003() -> None:
+    """Without fallback a 'statement not available' is raised as-is: the worker defers, IB is not hammered."""
+    calls: List[Dict[str, Any]] = []
+
+    def fake_fetch(token: str, query_id: str, from_date=None, to_date=None, period=None):
+        calls.append({"from_date": from_date, "period": period})
+        raise ValueError("Flex request failed: [1003] Statement is not available.")
+
+    with patch("bifrost_flex_query.orchestration.trades.fetch_trades", side_effect=fake_fetch):
+        with pytest.raises(ValueError, match=r"\[1003\]"):
+            _fetch_trades_with_date_fallback("tok", "1428383", from_date="20260905", to_date="20260906", allow_fallback=False)
+    assert len(calls) == 1
+
+
+def test_scheduled_run_accepts_an_empty_window() -> None:
+    with patch("bifrost_flex_query.orchestration.trades.fetch_trades", return_value=[]) as ft:
+        rows, used, kind = _fetch_trades_with_date_fallback("tok", "q", from_date="20260905", to_date="20260906", allow_fallback=False)
+    assert rows == [] and used is False and kind is None
+    assert ft.call_count == 1
+
+
 def test_date_range_1003_falls_back_to_query_default() -> None:
     calls: List[Dict[str, Any]] = []
 

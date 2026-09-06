@@ -18,6 +18,12 @@ from bifrost_flex_query.orchestration.config_rw import (
 logger = logging.getLogger(__name__)
 
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no", "off")
+    return bool(value)
+
+
 def fetch_cash_transactions_from_flex(
     config: dict,
     body: Optional[Dict[str, Any]] = None,
@@ -53,6 +59,7 @@ def fetch_cash_transactions_from_flex(
         payload = body or {}
         from_date = (payload.get("from_date") or "").strip() or None
         to_date = (payload.get("to_date") or "").strip() or None
+        allow_fallback = _truthy(payload.get("fallback", True))
         if from_date is None and to_date is None:
             from_date, to_date = get_flex_default_range_dates(conn)
         all_rows: List[Dict[str, Any]] = []
@@ -63,7 +70,8 @@ def fetch_cash_transactions_from_flex(
                 all_rows.extend(rows)
             except ValueError as e:
                 if (
-                    from_date
+                    allow_fallback
+                    and from_date
                     and to_date
                     and ("[1003]" in str(e) or "Statement is not available" in str(e))
                 ):
@@ -87,13 +95,24 @@ def fetch_cash_transactions_from_flex(
                 "ok": True,
                 "count": 0,
                 "message": "No cash transactions in report.",
+                "errors": errors,
                 "by_account": len(entries),
+                "range_from": from_date,
+                "range_to": to_date,
             }
         n = upsert_account_transactions(config, all_rows)
         msg = f"Upserted {n} transaction(s) from {len(entries)} Flex account(s)."
         if errors:
             msg += " Partial errors: " + "; ".join(errors)
-        return {"ok": True, "count": n, "message": msg, "by_account": len(entries)}
+        return {
+            "ok": True,
+            "count": n,
+            "message": msg,
+            "errors": errors,
+            "by_account": len(entries),
+            "range_from": from_date,
+            "range_to": to_date,
+        }
     except Exception as e:
         logger.exception("fetch_cash_transactions_from_flex failed: %s", e)
         return {"ok": False, "error": str(e), "count": 0}

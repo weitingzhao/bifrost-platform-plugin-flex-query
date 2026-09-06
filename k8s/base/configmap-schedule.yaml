@@ -5,12 +5,22 @@ metadata:
   labels:
     app.kubernetes.io/name: flex-query
 data:
+  # Mirror of config/schedule.yaml — planned fire times (dashboard) + attempt budget.
+  # The trigger is Dagster research_flex_morning_schedule (bifrost-research).
   schedule.yaml: |
     scheduler:
+      timezone: America/New_York
       slots:
         flex-trades:
-          cron: "30 22 * * 1-5"
+          cron: "30 6 * * 1-6"
           priority: 5
+          max_attempts: 8
         flex-transactions:
-          cron: "0 23 * * 1-5"
+          cron: "30 6 * * 1-6"
           priority: 4
+          max_attempts: 8
+      retry:
+        not_ready_delay_sec: 1800
+        throttled_delay_sec: 1800
+        transient_delay_sec: 120
+        unknown_delay_sec: 300

@@ -1,8 +1,14 @@
-"""Minimal 5-field cron helpers (UTC) for schedule plan / adherence UI."""
+"""Minimal 5-field cron helpers for schedule plan / adherence UI.
+
+Crons are matched in ``tz`` (an IANA name) and returned as UTC instants, so a
+schedule written the way Dagster writes it — ``30 6 * * 1-6`` in
+America/New_York — plans the same fire times the scheduler will actually use.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 
 def _parse_part(part: str, minimum: int, maximum: int) -> set[int]:
@@ -51,32 +57,41 @@ def _matches(dt: datetime, minutes: set[int] | None, hours: set[int] | None, dow
     return True
 
 
-def iter_cron_fires(expr: str, *, start: datetime, end: datetime) -> list[datetime]:
+def _zone(tz: str | None) -> ZoneInfo | timezone:
+    return ZoneInfo(tz) if tz else timezone.utc
+
+
+def iter_cron_fires(expr: str, *, start: datetime, end: datetime, tz: str | None = None) -> list[datetime]:
     if start.tzinfo is None:
         start = start.replace(tzinfo=timezone.utc)
     if end.tzinfo is None:
         end = end.replace(tzinfo=timezone.utc)
     minutes, hours, dows = parse_cron(expr)
+    zone = _zone(tz)
     cur = start.replace(second=0, microsecond=0)
     if cur < start:
         cur += timedelta(minutes=1)
     out: list[datetime] = []
     while cur < end:
-        if _matches(cur, minutes, hours, dows):
-            out.append(cur)
+        if _matches(cur.astimezone(zone), minutes, hours, dows):
+            out.append(cur.astimezone(timezone.utc))
         cur += timedelta(minutes=1)
     return out
 
 
-def next_fires(expr: str, *, after: datetime, count: int = 3, horizon_days: int = 14) -> list[datetime]:
+def next_fires(
+    expr: str, *, after: datetime, count: int = 3, horizon_days: int = 14, tz: str | None = None
+) -> list[datetime]:
     start = after + timedelta(minutes=1)
     end = after + timedelta(days=horizon_days)
-    return iter_cron_fires(expr, start=start, end=end)[: max(0, int(count))]
+    return iter_cron_fires(expr, start=start, end=end, tz=tz)[: max(0, int(count))]
 
 
-def previous_fire(expr: str, *, before: datetime, lookback_days: int = 14) -> datetime | None:
+def previous_fire(
+    expr: str, *, before: datetime, lookback_days: int = 14, tz: str | None = None
+) -> datetime | None:
     start = before - timedelta(days=lookback_days)
-    fires = iter_cron_fires(expr, start=start, end=before)
+    fires = iter_cron_fires(expr, start=start, end=before, tz=tz)
     return fires[-1] if fires else None
 
 

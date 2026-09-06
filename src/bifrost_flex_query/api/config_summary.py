@@ -87,6 +87,9 @@ def config_summary(
         source = "secret"
     else:
         source = "none"
+    from bifrost_flex_query.orchestration.config_rw import flex_tokens_issued_at
+
+    issued_at, age_days = flex_tokens_issued_at()
     return {
         "tokens": {
             "host_token_set": host_last4 is not None,
@@ -95,6 +98,8 @@ def config_summary(
             "secondary_token_last4": sec_last4,
             "host_source": host_src,
             "secondary_source": sec_src,
+            "issued_at": issued_at,
+            "age_days": age_days,
         },
         "source": source,
         "range_days": {"default": default_days, "init": init_days},

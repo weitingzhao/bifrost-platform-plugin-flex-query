@@ -25,8 +25,13 @@ def start_health_server(port: int, state: dict[str, Any]) -> ThreadingHTTPServer
                     "pool": "flex",
                     "jobs_done": int(state.get("jobs_done") or 0),
                     "jobs_failed": int(state.get("jobs_failed") or 0),
+                    "jobs_retried": int(state.get("jobs_retried") or 0),
                     "last_kind": state.get("last_kind") or "",
                     "last_claim_at": state.get("last_claim_at") or "",
+                    "last_error": state.get("last_error") or "",
+                    "last_error_category": state.get("last_error_category") or "",
+                    "stale_reclaimed": int(state.get("stale_reclaimed") or 0),
+                    "db_reconnects": int(state.get("db_reconnects") or 0),
                 }
             ).encode()
             self.send_response(200)

@@ -11,9 +11,19 @@
 
 | 组件 | 说明 |
 |------|------|
-| CronJob | `flex-trades` / `flex-transactions` → enqueue `ops_jobs.job_flex_ingest` |
-| Worker | `SELECT FOR UPDATE SKIP LOCKED` 认领 → 调用本包 Flex orchestration |
-| API | `:8791` — `/health`, `/flex/ingest/*`, `/flex/config/*`, `/flex/coverage/*` |
+| 触发 | **Dagster** `research_flex_morning_schedule`（bifrost-research，06:30 ET 周一–周六）→ `POST /flex/ingest/enqueue`；本 repo 自 0.6.0 起**无 CronJob**，`config/schedule.yaml` 仅镜像该 cron 供看板计算计划/偏差 |
+| Worker | `SELECT FOR UPDATE SKIP LOCKED` 认领（`not_before` 到期才可认领）→ 调用本包 Flex orchestration；失败按 `worker/retry.py` 分类：未就绪/限流 → 延后 30 分钟重试，配置类 → 直接 failed |
+| API | `:8791` — `/health`, `/metrics`, `/flex/ingest/*`, `/flex/config/*`, `/flex/coverage/*`, `/flex/dashboard/*` |
+
+### 0.6.0 行为约定（改动前先读）
+
+- 排队任务 `payload.fallback=false`：IB 报表未生成就等（1003/1004/1019 → `not_before`），不再回退到"查询默认周期 / 最近 365 天"；那条回退链只保留给手动运行。
+- 1018 限流 → 本任务与**所有 pending** 任务一起延后（token 级冷却）。
+- 单账户失败 = 任务未完成（upsert 幂等，重试免费）；`flex_ingest_freshness.latest_ts` 只在完整成功时前移，失败只写 `last_ok/last_error`。
+- 手动触发（Trade UI 按钮 / XML 上传）同步执行，但也落一行 job（`payload.manual=true`）与 outcome。
+- Worker 用 `clock_timestamp()`，空轮询后 `rollback()`；Postgres 断连自动重连。
+- `/metrics` 由 `bifrost-trade-infra/k8s/monitoring` 的 ServiceMonitor 抓取，告警 `BifrostFlexIngest*`。
+- `client/flex_client.py`：Trades 的 `dateTime` 保留时分秒；仅日期时取 `FLEX_LOCAL_TZ`（默认 America/New_York）当日零点。Cash transactions 的 `ts` 因是 UNIQUE 键的一部分**保持原样**。
 
 ## 架构边界
 

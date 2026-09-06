@@ -57,6 +57,7 @@ def list_jobs(
         params.append(kind)
     sql = f"""
         SELECT id, kind, payload, status, attempts, max_attempts, result,
+               error_category, not_before,
                created_at, started_at, finished_at
         FROM ops_jobs.job_flex_ingest
         WHERE {' AND '.join(clauses)}

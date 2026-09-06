@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import psycopg2
-from bifrost_core.persistence.postgres.brokerage_tables import EXECUTIONS, GOLDEN_SETTINGS_FLEX, SETTINGS_FLEX
+from bifrost_core.persistence.postgres.brokerage_tables import (
+    EXECUTIONS,
+    GOLDEN_SETTINGS_FLEX,
+    SETTINGS_FLEX,
+)
 from bifrost_core.persistence.postgres.connection import (
     _get_conn_params,
     _get_golden_source_conn_params,
@@ -22,7 +26,25 @@ _EXEC_READ_TABLE = EXECUTIONS
 # Wave 4: prefer K8s Secret / env over Trade DB plaintext columns.
 _ENV_HOST_TOKEN = "FLEX_HOST_TOKEN"
 _ENV_SECONDARY_TOKEN = "FLEX_SECONDARY_TOKEN"
+# Written by scripts/sync_flex_tokens.sh into the same Secret: IB tokens expire
+# (error 1012) and nothing else records when they were issued.
+_ENV_TOKENS_ISSUED_AT = "FLEX_TOKENS_ISSUED_AT"
 _token_source_logged = False
+
+
+def flex_tokens_issued_at(now: datetime | None = None) -> Tuple[Optional[str], Optional[int]]:
+    """(issued_at ISO date, age in days) from the Secret, or (None, None) when unknown."""
+    raw = (os.environ.get(_ENV_TOKENS_ISSUED_AT) or "").strip()
+    if not raw:
+        return None, None
+    try:
+        issued = datetime.strptime(raw[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return raw, None
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return issued.date().isoformat(), max(0, (now - issued).days)
 
 
 def resolve_flex_tokens() -> Tuple[str, str, str, str]:

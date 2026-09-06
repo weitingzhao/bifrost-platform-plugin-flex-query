@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from bifrost_flex_query.api.deps import db_conn
 from bifrost_flex_query.scheduler.cronutil import iso_z, next_fires, previous_fire
-from bifrost_flex_query.scheduler.daily import SLOT_KIND, load_schedule
+from bifrost_flex_query.scheduler.daily import SLOT_KIND, load_schedule, schedule_timezone
 
 router = APIRouter(prefix="/flex/ingest", tags=["ingest"])
 
@@ -17,18 +17,21 @@ router = APIRouter(prefix="/flex/ingest", tags=["ingest"])
 @router.get("/queue-dashboard")
 def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
     schedule = load_schedule()
-    slots = dict((schedule.get("scheduler") or {}).get("slots") or {})
+    scheduler_cfg = dict(schedule.get("scheduler") or {})
+    tz = schedule_timezone(scheduler_cfg)
+    slots = dict(scheduler_cfg.get("slots") or {})
     now = datetime.now(timezone.utc)
     plans: list[dict[str, Any]] = []
     for slot_name, kind in SLOT_KIND.items():
         scfg = dict(slots.get(slot_name) or {})
         cron = str(scfg.get("cron") or "")
-        last_planned = previous_fire(cron, before=now) if cron else None
-        upcoming = next_fires(cron, after=now, count=3) if cron else []
+        last_planned = previous_fire(cron, before=now, tz=tz) if cron else None
+        upcoming = next_fires(cron, after=now, count=3, tz=tz) if cron else []
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, status, created_at, finished_at, result
+                SELECT id, status, attempts, max_attempts, error_category, not_before,
+                       created_at, started_at, finished_at, result
                 FROM ops_jobs.job_flex_ingest
                 WHERE kind = %s
                 ORDER BY id DESC
@@ -37,7 +40,18 @@ def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
                 (kind,),
             )
             last = cur.fetchone()
+            cur.execute(
+                """
+                SELECT count(*)::int AS n, min(not_before) AS next_retry_at
+                FROM ops_jobs.job_flex_ingest
+                WHERE kind = %s AND status = 'pending'
+                """,
+                (kind,),
+            )
+            pend = cur.fetchone() or {}
         last_job = dict(last) if last else None
+        if last_job is not None:
+            last_job["not_before"] = iso_z(last_job.get("not_before"))
         adherence = "on_plan"
         if last_planned is not None:
             window_end = last_planned + timedelta(hours=2)
@@ -53,9 +67,13 @@ def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
                 "slot": slot_name,
                 "kind": kind,
                 "cron": cron,
+                "timezone": tz or "UTC",
+                "max_attempts": scfg.get("max_attempts"),
                 "last_planned_at": iso_z(last_planned),
                 "next_fires": [iso_z(t) for t in upcoming],
                 "last_job": last_job,
+                "pending": int(pend.get("n") or 0),
+                "next_retry_at": iso_z(pend.get("next_retry_at")),
                 "late": adherence == "late",
                 "adherence": adherence,
             }
@@ -71,6 +89,7 @@ def queue_dashboard(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         counts = {str(r["status"]): int(r["n"]) for r in cur.fetchall()}
     return {
         "now": iso_z(now),
+        "schedule": {"timezone": tz or "UTC", "owner": "dagster:research_flex_morning_schedule"},
         "counts": {
             "pending": counts.get("pending", 0),
             "running": counts.get("running", 0),

@@ -1,4 +1,10 @@
-"""CronJob-driven enqueue into ops_jobs.job_flex_ingest."""
+"""Slot → job: what a scheduled Flex ingest looks like when it lands in the queue.
+
+The trigger itself lives in bifrost-research (Dagster ``research_flex_morning``);
+this module is the shared vocabulary: slot names, kinds, per-slot priority and
+attempt budget, and the CLI that Dagster's HTTP call and the old CronJob both
+funnel into.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +29,11 @@ SLOT_KIND = {
     "flex-trades": "flex-trades",
     "flex-transactions": "flex-transactions",
 }
+# Eight attempts half an hour apart cover a 06:30 ET first try until IB's
+# statement is generated, without a single burst of requests.
+DEFAULT_SLOT_MAX_ATTEMPTS = 8
+# Knobs that shape how a job runs but not which job it is (dedupe ignores them).
+_EXECUTION_KEYS = ("fallback",)
 
 
 def default_schedule_path() -> Path | None:
@@ -51,6 +62,12 @@ def load_schedule(path: str | Path | None = None) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {"scheduler": {}}
 
 
+def schedule_timezone(scheduler_cfg: Mapping[str, Any] | None) -> str | None:
+    """The zone the slot crons are written in (None = UTC)."""
+    tz = str((scheduler_cfg or {}).get("timezone") or "").strip()
+    return tz or None
+
+
 def enqueue_slot(
     conn: Any,
     slot: str,
@@ -65,11 +82,23 @@ def enqueue_slot(
     slots = dict(cfg.get("slots") or {})
     scfg = dict(slots.get(slot_key) or {})
     priority = int(scfg.get("priority") or 0)
+    max_attempts = int(scfg.get("max_attempts") or DEFAULT_SLOT_MAX_ATTEMPTS)
     kind = SLOT_KIND[slot_key]
     body = dict(payload or {})
     if "as_of" not in body:
         body["as_of"] = datetime.now(timezone.utc).date().isoformat()
-    job_id = insert_job(conn, kind=kind, payload=body, priority=priority)
+    identity = {k: v for k, v in body.items() if k not in _EXECUTION_KEYS}
+    # A queued run waits for IB rather than widening the query; a reader who
+    # wants the old fallback chain says so in the payload.
+    body.setdefault("fallback", False)
+    job_id = insert_job(
+        conn,
+        kind=kind,
+        payload=body,
+        priority=priority,
+        max_attempts=max_attempts,
+        hash_payload=identity,
+    )
     return {
         "slot": slot_key,
         "kind": kind,
@@ -77,6 +106,7 @@ def enqueue_slot(
         "deduped": 1 if job_id is None else 0,
         "job_id": job_id,
         "payload": body,
+        "max_attempts": max_attempts,
     }
 
 

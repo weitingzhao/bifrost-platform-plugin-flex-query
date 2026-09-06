@@ -28,12 +28,18 @@ def insert_job(
     payload: Mapping[str, Any] | None = None,
     priority: int = 0,
     max_attempts: int = 3,
+    hash_payload: Mapping[str, Any] | None = None,
 ) -> int | None:
+    """Insert unless an identical job is already pending/running.
+
+    ``hash_payload`` is what "identical" means when it differs from the stored
+    payload — execution knobs such as ``fallback`` are not identity.
+    """
     kind_s = str(kind).strip()
     if not kind_s:
         raise ValueError("kind is required")
     body = dict(payload or {})
-    ph = payload_hash(body)
+    ph = payload_hash(body if hash_payload is None else hash_payload)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -98,3 +104,36 @@ def trim_old_jobs(
         conn.rollback()
         raise
     return deleted
+
+
+def insert_manual_job(conn: _Connection, *, kind: str, payload: Mapping[str, Any] | None = None) -> int:
+    """A synchronous manual run, recorded as a job that is already running.
+
+    The Console's queue history and the freshness row then tell one story
+    whether a fetch came from Dagster or from the Trade UI's button. No
+    payload_hash: a manual run never dedupes against a queued one.
+    """
+    kind_s = str(kind).strip()
+    if not kind_s:
+        raise ValueError("kind is required")
+    body = {"manual": True, **dict(payload or {})}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO ops_jobs.job_flex_ingest
+                    (kind, payload, payload_hash, priority, status, attempts, max_attempts, started_at)
+                VALUES
+                    (%s, %s::jsonb, NULL, 0, 'running', 1, 1, clock_timestamp())
+                RETURNING id
+                """,
+                (kind_s, json.dumps(body, default=str)),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    if isinstance(row, Mapping):
+        return int(row["id"])
+    return int(row[0])

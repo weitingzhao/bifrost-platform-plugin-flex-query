@@ -51,3 +51,25 @@ def test_enqueue_slot_flex_trades() -> None:
     assert out["kind"] == "flex-trades"
     assert out["enqueued"] == 1
     assert out["job_id"] == 1
+    # A queued run waits for IB instead of widening the query, and has the morning's attempt budget.
+    assert out["payload"] == {"as_of": "2026-08-17", "fallback": False}
+    assert out["max_attempts"] == 8
+    _sql, params = conn.statements[0]
+    assert params[4] == 8
+
+
+def test_fallback_is_not_identity() -> None:
+    """A Console enqueue (no knobs) dedupes against the scheduled one for the same day."""
+    from bifrost_flex_query.scheduler.enqueue import payload_hash
+
+    conn = _Conn()
+    enqueue_slot(conn, "flex-trades", payload={"as_of": "2026-08-17"})
+    enqueue_slot(conn, "flex-trades", payload={"as_of": "2026-08-17", "fallback": True})
+    hashes = [params[2] for _sql, params in conn.statements]
+    assert hashes[0] == hashes[1] == payload_hash({"as_of": "2026-08-17"})
+
+
+def test_slot_attempt_budget_from_schedule() -> None:
+    conn = _Conn()
+    out = enqueue_slot(conn, "flex-transactions", scheduler_cfg={"slots": {"flex-transactions": {"max_attempts": 3}}})
+    assert out["max_attempts"] == 3

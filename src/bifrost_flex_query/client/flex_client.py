@@ -9,16 +9,66 @@ Used by Flex Query Plugin orchestration (trigger, CronJob worker, XML upload).
 """
 
 import logging
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+# Where a date without a time belongs. IB reports trade dates in the account's
+# local (exchange) day; stamping them as UTC midnight put every trade on the
+# evening before when read in New York.
+FLEX_LOCAL_TZ = (os.environ.get("FLEX_LOCAL_TZ") or "America/New_York").strip() or "America/New_York"
+
+# (format, characters it consumes). Order matters: the timed form must be tried
+# on its full length — slicing "20260904;202000" to 8 characters for the first
+# format is how every execution came to be stored at midnight.
+_FLEX_DATETIME_FORMATS: Tuple[Tuple[str, int, bool], ...] = (
+    ("%Y%m%d;%H%M%S", 15, False),
+    ("%Y-%m-%dT%H:%M:%S", 19, False),
+    ("%Y-%m-%d %H:%M:%S", 19, False),
+    ("%Y%m%d", 8, True),
+    ("%Y-%m-%d", 10, True),
+)
+
+
+def _local_midnight_utc(d: datetime) -> datetime:
+    """A calendar date as the instant its day begins in FLEX_LOCAL_TZ, in UTC."""
+    return d.replace(tzinfo=ZoneInfo(FLEX_LOCAL_TZ)).astimezone(timezone.utc)
+
+
+def parse_flex_datetime(raw: str) -> Tuple[Optional[datetime], bool]:
+    """IB's ``dateTime`` attribute → (aware UTC datetime, date_only).
+
+    Timed values are taken as UTC as before; a bare date lands at local midnight.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return None, False
+    for fmt, n, date_only in _FLEX_DATETIME_FORMATS:
+        if len(s) < n:
+            continue
+        try:
+            parsed = datetime.strptime(s[:n], fmt)
+        except ValueError:
+            continue
+        if date_only:
+            return _local_midnight_utc(parsed), True
+        return parsed.replace(tzinfo=timezone.utc), False
+    m = re.search(r"(\d{8})", s)
+    if m:
+        try:
+            return _local_midnight_utc(datetime.strptime(m.group(1), "%Y%m%d")), True
+        except ValueError:
+            return None, False
+    return None, False
 
 FLEX_SEND_REQUEST_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest"
 FLEX_GET_STATEMENT_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement"
@@ -255,6 +305,10 @@ def parse_cash_transactions_xml(xml_body: str) -> List[Dict[str, Any]]:
             amount = 0.0
         if not account_id and amount == 0:
             continue
+        # Cash transactions keep the legacy date-only UTC stamp on purpose:
+        # ``ts`` is part of raw_broker.transactions' UNIQUE key, so a corrected
+        # time would land every historical row a second time. The full
+        # ``dateTime`` is preserved in raw_extra. Trades use parse_flex_datetime.
         ts_parsed: Optional[datetime] = None
         s = date_time_str.strip()
         for fmt in ("%Y%m%d;%H%M%S", "%Y%m%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
@@ -378,36 +432,11 @@ def parse_trades_xml(xml_body: str) -> List[Dict[str, Any]]:
         account_id = attrs.get("accountId") or report_account_id
         if not account_id:
             account_id = ""
-        # 时间：Flex Trades 通常为 YYYYMMDD;HHMMSS
-        date_time_str = attrs.get("dateTime", "")
-        ts_parsed: Optional[datetime] = None
-        s = date_time_str.strip()
-        for fmt in ("%Y%m%d;%H%M%S", "%Y%m%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-            try:
-                n = 19 if "T" in fmt or " " in fmt else 8
-                ts_parsed = datetime.strptime(s[:n], fmt)
-                if ts_parsed.tzinfo is None:
-                    ts_parsed = ts_parsed.replace(tzinfo=timezone.utc)
-                break
-            except (ValueError, TypeError):
-                continue
-        if ts_parsed is None and s:
-            m = re.search(r"(\d{8})", s)
-            if m:
-                try:
-                    ts_parsed = datetime.strptime(m.group(1), "%Y%m%d").replace(tzinfo=timezone.utc)
-                except ValueError:
-                    ts_parsed = None
+        # 时间：Flex Trades 通常为 YYYYMMDD;HHMMSS — keep the time; a bare date
+        # (or a tradeDate fallback) is local midnight, not UTC midnight.
+        ts_parsed, _date_only = parse_flex_datetime(attrs.get("dateTime", ""))
         if ts_parsed is None:
-            # 再退一步：使用 tradeDate 作为日期
-            td = attrs.get("tradeDate") or ""
-            td_dt = None
-            try:
-                if td:
-                    td_dt = datetime.strptime(td[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
-            except ValueError:
-                td_dt = None
-            ts_parsed = td_dt
+            ts_parsed, _date_only = parse_flex_datetime(attrs.get("tradeDate") or "")
         if ts_parsed is None:
             # 没有时间且没有账户/数量信息就丢弃
             if not account_id:

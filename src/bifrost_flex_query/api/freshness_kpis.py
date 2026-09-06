@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from bifrost_flex_query.api.deps import db_conn
 from bifrost_flex_query.scheduler.cronutil import iso_z, next_fires, previous_fire
-from bifrost_flex_query.scheduler.daily import SLOT_KIND, load_schedule
+from bifrost_flex_query.scheduler.daily import SLOT_KIND, load_schedule, schedule_timezone
 from bifrost_flex_query.schema.ddl import ensure_flex_ops_schema
 
 router = APIRouter(prefix="/flex/dashboard", tags=["dashboard"])
@@ -65,12 +65,13 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT dimension, latest_ts, row_count, updated_at
+            SELECT dimension, latest_ts, row_count, updated_at,
+                   last_ok, last_error, processed_rows, new_rows, last_job_id, last_finished_at
             FROM ops_jobs.flex_ingest_freshness
             ORDER BY dimension
             """
         )
-        freshness_rows = list(cur.fetchall() or [])
+        freshness_rows = [dict(r) for r in cur.fetchall() or []]
 
     last_success_at: datetime | None = None
     if freshness_rows:
@@ -92,32 +93,35 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
             if row and row.get("ts"):
                 last_success_at = row["ts"]
 
+    # The newest job row, whatever it did: "last run" used to be read off the
+    # freshness table, which only ever recorded successes, so it said "done"
+    # on mornings when the last three attempts had failed.
     last_run_at: datetime | None = None
     last_run_status: str | None = None
     last_run_kind: str | None = None
-    if freshness_rows:
-        latest_fresh = max(
-            freshness_rows,
-            key=lambda r: r.get("latest_ts") or datetime.min.replace(tzinfo=timezone.utc),
+    last_run_error: str | None = None
+    last_run_category: str | None = None
+    last_run_retry_at: datetime | None = None
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT kind, status, error_category, not_before, result, finished_at, started_at, created_at
+            FROM ops_jobs.job_flex_ingest
+            ORDER BY id DESC
+            LIMIT 1
+            """
         )
-        last_run_at = latest_fresh.get("latest_ts")
-        last_run_kind = latest_fresh.get("dimension")
-        last_run_status = "done"
-    else:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT kind, status, finished_at, created_at
-                FROM ops_jobs.job_flex_ingest
-                ORDER BY id DESC
-                LIMIT 1
-                """
-            )
-            row = cur.fetchone()
-            if row:
-                last_run_at = row.get("finished_at") or row.get("created_at")
-                last_run_status = row.get("status")
-                last_run_kind = row.get("kind")
+        row = cur.fetchone()
+    if row:
+        last_run_at = row.get("finished_at") or row.get("started_at") or row.get("created_at")
+        last_run_status = row.get("status")
+        last_run_kind = row.get("kind")
+        last_run_category = row.get("error_category")
+        res = row.get("result") or {}
+        if isinstance(res, dict) and res.get("error"):
+            last_run_error = str(res.get("error"))[:500]
+        if last_run_status == "pending":
+            last_run_retry_at = row.get("not_before")
 
     latest_exec_ts: datetime | None = None
     exec_row_count: int | None = None
@@ -149,7 +153,9 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         conn.rollback()
 
     schedule = load_schedule()
-    slots_cfg = dict((schedule.get("scheduler") or {}).get("slots") or {})
+    scheduler_cfg = dict(schedule.get("scheduler") or {})
+    tz = schedule_timezone(scheduler_cfg)
+    slots_cfg = dict(scheduler_cfg.get("slots") or {})
     next_run_at: datetime | None = None
     next_run_slot: str | None = None
     for slot_name in SLOT_KIND:
@@ -157,7 +163,7 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         cron = str(scfg.get("cron") or "")
         if not cron:
             continue
-        upcoming = next_fires(cron, after=now, count=1)
+        upcoming = next_fires(cron, after=now, count=1, tz=tz)
         if upcoming and (next_run_at is None or upcoming[0] < next_run_at):
             next_run_at = upcoming[0]
             next_run_slot = slot_name
@@ -168,7 +174,7 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
         cron = str(scfg.get("cron") or "")
         if not cron:
             continue
-        prev = previous_fire(cron, before=now)
+        prev = previous_fire(cron, before=now, tz=tz)
         if prev and (last_planned_at is None or prev > last_planned_at):
             last_planned_at = prev
 
@@ -193,7 +199,24 @@ def freshness_kpis(conn: Any = Depends(db_conn)) -> dict[str, Any]:
             "age_label": _age_label(last_run_age),
             "status": last_run_status,
             "kind": last_run_kind,
+            "error": last_run_error,
+            "error_category": last_run_category,
+            "next_retry_at": iso_z(last_run_retry_at),
         },
+        "dimensions": [
+            {
+                "kind": r.get("dimension"),
+                "last_success_at": iso_z(r.get("latest_ts")),
+                "last_ok": r.get("last_ok"),
+                "last_error": r.get("last_error"),
+                "processed_rows": r.get("processed_rows"),
+                "new_rows": r.get("new_rows"),
+                "last_job_id": r.get("last_job_id"),
+                "last_finished_at": iso_z(r.get("last_finished_at")),
+            }
+            for r in freshness_rows
+        ],
+        "schedule": {"timezone": tz or "UTC", "owner": "dagster:research_flex_morning_schedule"},
         "latest_execution": {
             "at": iso_z(latest_exec_ts),
             "age_seconds": latest_exec_age,

@@ -1,8 +1,24 @@
+# Planned fire times, for the dashboard's "last planned / next run" and for the
+# per-slot attempt budget. The trigger itself is Dagster's
+# research_flex_morning_schedule in bifrost-research — keep the two in step.
+#
+# 06:30 ET: IB generates the previous day's Activity Flex statement overnight;
+# the 22:30 ET slot met "statement not available" every single night.
+# Mon–Sat: Saturday's run collects Friday.
 scheduler:
+  timezone: America/New_York
   slots:
     flex-trades:
-      cron: "30 22 * * 1-5"
+      cron: "30 6 * * 1-6"
       priority: 5
+      max_attempts: 8
     flex-transactions:
-      cron: "0 23 * * 1-5"
+      cron: "30 6 * * 1-6"
       priority: 4
+      max_attempts: 8
+  # Seconds a job waits before its next attempt, by what IB answered.
+  retry:
+    not_ready_delay_sec: 1800
+    throttled_delay_sec: 1800
+    transient_delay_sec: 120
+    unknown_delay_sec: 300

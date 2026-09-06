@@ -22,6 +22,12 @@ from bifrost_flex_query.orchestration.utils import rows_span
 logger = logging.getLogger(__name__)
 
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no", "off")
+    return bool(value)
+
+
 def _is_flex_statement_unavailable(exc: BaseException) -> bool:
     """IB Flex Web Service error 1003 — date override often unsupported for Activity queries."""
     msg = str(exc)
@@ -34,6 +40,7 @@ def _fetch_trades_with_date_fallback(
     *,
     from_date: Optional[str],
     to_date: Optional[str],
+    allow_fallback: bool = True,
 ) -> tuple[List[Dict[str, Any]], bool, Optional[str]]:
     """
     Fetch Flex Trades with progressive fallback when IB rejects date overrides.
@@ -42,6 +49,11 @@ def _fetch_trades_with_date_fallback(
     1. from_date/to_date when both provided
     2. On 1003 or empty: query default period (no fd/td)
     3. On still empty / still failing: period=5 (Last 365 Calendar Days)
+
+    ``allow_fallback=False`` stops after step 1: a scheduled run that meets
+    "statement not available" should come back later, not fire two more
+    requests that only earn the 1018 throttle. A window with no trades is then
+    an honest empty result, not a reason to widen the query.
     """
     rows: List[Dict[str, Any]] = []
     used_fallback = False
@@ -52,7 +64,7 @@ def _fetch_trades_with_date_fallback(
         try:
             rows = fetch_trades(token, query_id, from_date=from_date, to_date=to_date)
         except ValueError as e:
-            if not _is_flex_statement_unavailable(e):
+            if not _is_flex_statement_unavailable(e) or not allow_fallback:
                 raise
             primary_err = e
             logger.warning(
@@ -63,7 +75,7 @@ def _fetch_trades_with_date_fallback(
     else:
         rows = fetch_trades(token, query_id, from_date=from_date, to_date=to_date)
 
-    if rows:
+    if rows or not allow_fallback:
         return rows, used_fallback, fallback_kind
 
     try:
@@ -142,6 +154,7 @@ def fetch_flex_trades_and_upsert_executions(
         payload = body or {}
         from_date = (payload.get("from_date") or "").strip() or None
         to_date = (payload.get("to_date") or "").strip() or None
+        allow_fallback = _truthy(payload.get("fallback", True))
         range_mode = "manual" if from_date or to_date else "auto"
         range_days = None
         if from_date is None and to_date is None:
@@ -182,6 +195,7 @@ def fetch_flex_trades_and_upsert_executions(
                     query_id,
                     from_date=from_date,
                     to_date=to_date,
+                    allow_fallback=allow_fallback,
                 )
                 rows_per_fetch.append(len(rows))
                 all_rows.extend(rows)
@@ -260,12 +274,16 @@ def fetch_flex_trades_and_upsert_executions(
                 "ok": True,
                 "count": 0,
                 "message": msg,
+                "errors": errors,
                 "by_account": len(entries),
                 "by_account_counts": rows_per_fetch,
                 "data_from": data_from,
                 "data_to": data_to,
                 "raw_count": 0,
                 "per_query": per_query,
+                "range_mode": range_mode,
+                "range_from": from_date,
+                "range_to": to_date,
             }
 
         raw_count = len(all_rows)
@@ -342,6 +360,7 @@ def fetch_flex_trades_and_upsert_executions(
             "count": len(all_rows),
             "raw_count": raw_count,
             "message": msg,
+            "errors": errors,
             "by_account": len(entries),
             "by_account_counts": rows_per_fetch,
             "per_query": per_query,

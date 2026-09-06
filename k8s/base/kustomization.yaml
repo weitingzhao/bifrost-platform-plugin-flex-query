@@ -12,7 +12,8 @@ resources:
   - configmap.yaml
   - configmap-schedule.yaml
   - network-policy.yaml
-  - cronjob-daily.yaml
+  # No CronJob: the trigger is Dagster research_flex_morning_schedule (bifrost-research).
+  # A suspended copy here was a third cron to drift from; 0.6.0 removed it.
 
 labels:
   - pairs:
@@ -24,4 +25,4 @@ labels:
 images:
   - name: bifrost-flex-query
     newName: 192.168.10.73:30500/bifrost-flex-query
-    newTag: "0.5.3"
+    newTag: "0.6.0"
