@@ -2,6 +2,19 @@
 
 与本项目用户的所有对话一律使用中文回复；UI 字符串与代码标识符使用 English。
 
+## 工作区定位（2026-09-06）
+
+| 项 | 值 |
+|---|---|
+| 域 / 载荷 | Ops · Subcontractor（供数插件）· IB Flex Query → `raw_broker.*`（Golden Source） |
+| 运行位置 | K3s `plugin-flex-query` NS，API `:8791`（Trade 经 `/api/plugin/flex-query/`）；`bifrost-build-flex-query` 流水线 |
+| 秘密 | Flex token 在未跟踪的 `flex-tokens-secret.yaml` / `.env` 里，永不入库；账户号本身不是秘密 |
+| 仓库可见性 | GitHub **PUBLIC**（12 个 repo 全部公开）—— `.env`、Secret YAML、dump、kubeconfig、账户内容永不入库 |
+| 硬边界 | D10 交易执行冻结（BLOCKED）· D13 三域边界 · 平台/业务解耦（Flywheel A/B） |
+| 事实基线 | `../AGENT_FACTS.md`（§8c 运行时与安全事实）· 规则 `../CLAUDE.md`（§8 Claude Code 运行配置） |
+
+会话请在工作区根 `/stocks` 启动（加载治理层 hooks / auto mode / 共享记忆）；运行时与安全事实以 `../AGENT_FACTS.md` §8c 为准。
+
 ## 职责
 
 **`bifrost-flex-query`** — Bifrost Ops Platform 的 **IB Flex Query Subcontractor**。
