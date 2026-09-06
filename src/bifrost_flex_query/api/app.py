@@ -13,6 +13,7 @@ from bifrost_flex_query.api.ingest import router as ingest_router
 from bifrost_flex_query.api.ingest_dashboard import router as dashboard_router
 from bifrost_flex_query.api.manual_ops import router as manual_ops_router
 from bifrost_flex_query.api.metrics import router as metrics_router
+from bifrost_flex_query.api.ops import router as ops_router
 from bifrost_flex_query.api.raw_peek import router as raw_peek_router
 
 
@@ -27,4 +28,5 @@ def create_app() -> FastAPI:
     app.include_router(freshness_kpis_router)
     app.include_router(manual_ops_router)
     app.include_router(metrics_router)
+    app.include_router(ops_router)
     return app

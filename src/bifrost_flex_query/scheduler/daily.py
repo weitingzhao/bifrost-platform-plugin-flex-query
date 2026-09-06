@@ -33,7 +33,9 @@ SLOT_KIND = {
 # statement is generated, without a single burst of requests.
 DEFAULT_SLOT_MAX_ATTEMPTS = 8
 # Knobs that shape how a job runs but not which job it is (dedupe ignores them).
-_EXECUTION_KEYS = ("fallback",)
+_EXECUTION_KEYS = ("fallback", "catchup")
+# A planned slot with no job this long after it fired is one the scheduler missed.
+DEFAULT_CATCHUP_GRACE_SEC = 2700
 
 
 def default_schedule_path() -> Path | None:
@@ -66,6 +68,14 @@ def schedule_timezone(scheduler_cfg: Mapping[str, Any] | None) -> str | None:
     """The zone the slot crons are written in (None = UTC)."""
     tz = str((scheduler_cfg or {}).get("timezone") or "").strip()
     return tz or None
+
+
+def catchup_grace_sec(scheduler_cfg: Mapping[str, Any] | None) -> int:
+    raw = (scheduler_cfg or {}).get("catchup_grace_sec")
+    try:
+        return max(300, int(raw)) if raw not in (None, "") else DEFAULT_CATCHUP_GRACE_SEC
+    except (TypeError, ValueError):
+        return DEFAULT_CATCHUP_GRACE_SEC
 
 
 def enqueue_slot(

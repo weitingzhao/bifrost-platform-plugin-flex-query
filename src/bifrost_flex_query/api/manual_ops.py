@@ -74,6 +74,11 @@ def trigger_flex_fetch(
     if job_kind is None:
         raise HTTPException(status_code=400, detail=f"unsupported kind: {kind!r} (use 'trades' or 'transactions')")
 
+    # One request per account. The old default chained query-default and
+    # period=5 after an empty or 1003 answer — three requests per account —
+    # which is what tripped IB's [1018] right after a scheduled run. A caller
+    # who wants the wide net says fallback: true.
+    payload.setdefault("fallback", False)
     cfg = load_config()
     core_cfg = trade_config_for_core(cfg)
     job_id = _audit_start(conn, job_kind, {"source": "trigger", **payload})

@@ -107,6 +107,14 @@ def render_metrics(snap: Mapping[str, Any]) -> str:
         if ts is not None:
             out.append(_line("bifrost_flex_data_latest_timestamp_seconds", ts, {"table": r["table"]}))
 
+    hb = snap.get("heartbeat") or {}
+    if hb.get("seen_at") is not None:
+        head("bifrost_flex_worker_last_seen_timestamp_seconds", "gauge", "When the worker last reported in.")
+        out.append(_line("bifrost_flex_worker_last_seen_timestamp_seconds", _ts(hb["seen_at"])))
+        head("bifrost_flex_worker_counter", "gauge", "Worker counters since its last start.")
+        for key in ("jobs_done", "jobs_failed", "jobs_retried", "catchups", "db_reconnects", "stale_reclaimed"):
+            out.append(_line("bifrost_flex_worker_counter", int(hb.get(key) or 0), {"name": key}))
+
     head("bifrost_flex_token_configured", "gauge", "1 when a Flex token is present for the side.")
     for side, present in (snap.get("tokens") or {}).items():
         out.append(_line("bifrost_flex_token_configured", 1 if present else 0, {"side": side}))
@@ -141,6 +149,9 @@ def collect_metrics(conn: Any, *, now: datetime | None = None) -> dict[str, Any]
         snap["last_jobs"] = [dict(r) for r in cur.fetchall() or []]
         cur.execute("SELECT status, count(*)::int AS n FROM ops_jobs.job_flex_ingest GROUP BY status")
         snap["counts"] = {str(r["status"]): int(r["n"]) for r in cur.fetchall() or []}
+        cur.execute("SELECT * FROM ops_jobs.flex_worker_heartbeat ORDER BY seen_at DESC NULLS LAST LIMIT 1")
+        hb = cur.fetchone()
+        snap["heartbeat"] = dict(hb) if hb else None
     conn.rollback()
 
     data: list[dict[str, Any]] = []

@@ -36,6 +36,24 @@ waited for, not widened to "query default" / "last 365 days". A run where one
 account failed is not `done` (the upsert makes the retry free). Stale
 `running` jobs are requeued, not buried.
 
+## Operator loop (0.6.1)
+
+- `GET /flex/ops/check` — the self-check: one verdict per kind
+  (`ok | waiting | throttled | failed | missed | running | queued | idle`),
+  the sentence that explains it, when the next thing happens, and the actions
+  that make sense right now (with the reason when one is disabled). Reads the
+  queue, freshness, worker heartbeat, plan and token state; never calls IB.
+- `POST /flex/ingest/jobs/{id}/run-now` — clear a deferred job's `not_before`
+  so the worker claims it on its next poll. Refused (409) while the token is in
+  an IB throttle cooldown unless `?force=true`.
+- **Worker catch-up** — on idle ticks the worker enqueues any planned slot that
+  fired `catchup_grace_sec` (45 min) ago with no job since; deduped on the day,
+  so a late Dagster enqueue is a no-op. `FLEX_CATCHUP_DISABLED=1` turns it off.
+- **Worker heartbeat** — `ops_jobs.flex_worker_heartbeat` (seen_at, counters,
+  last error); the self-check and `/metrics` read liveness from it.
+- Manual trigger (`/flex/ingest/trigger`) now sends **one request per account**;
+  pass `fallback: true` to re-enable the query-default / period=5 widening.
+
 ## Observability
 
 - `GET /metrics` — Prometheus text: last success per kind, last job status /

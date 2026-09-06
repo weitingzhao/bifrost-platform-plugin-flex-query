@@ -17,6 +17,8 @@ scheduler:
       priority: 4
       max_attempts: 8
   # Seconds a job waits before its next attempt, by what IB answered.
+  # A planned slot with no job this long after firing is enqueued by the worker itself.
+  catchup_grace_sec: 2700
   retry:
     not_ready_delay_sec: 1800
     throttled_delay_sec: 1800

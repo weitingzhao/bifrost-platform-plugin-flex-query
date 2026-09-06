@@ -47,7 +47,10 @@ def test_ensure_flex_ops_schema_skips_when_tables_present() -> None:
     assert conn.committed
     blob = "\n".join(conn.cur.statements)
     assert "information_schema.tables" in blob
-    assert "CREATE TABLE" not in blob
+    # The two queue tables are not re-created; the once-per-process migrations
+    # (ADD COLUMN IF NOT EXISTS, the heartbeat table) may still run.
+    assert "CREATE TABLE IF NOT EXISTS ops_jobs.job_flex_ingest" not in blob
+    assert "CREATE TABLE IF NOT EXISTS ops_jobs.flex_ingest_freshness" not in blob
     assert "flex_ops" not in blob
 
 

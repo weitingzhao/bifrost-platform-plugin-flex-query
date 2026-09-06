@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 SCHEMA = "ops_jobs"
 JOB_TABLE = f"{SCHEMA}.job_flex_ingest"
 FRESHNESS_TABLE = f"{SCHEMA}.flex_ingest_freshness"
+HEARTBEAT_TABLE = f"{SCHEMA}.flex_worker_heartbeat"
 
 # Idempotent, cheap, and run once per process: an older table grows the columns
 # the 0.6.0 worker needs (deferred retries, error categories, outcome-aware
@@ -23,6 +24,23 @@ _MIGRATIONS: tuple[str, ...] = (
     f"ALTER TABLE {FRESHNESS_TABLE} ADD COLUMN IF NOT EXISTS new_rows bigint",
     f"ALTER TABLE {FRESHNESS_TABLE} ADD COLUMN IF NOT EXISTS last_job_id bigint",
     f"ALTER TABLE {FRESHNESS_TABLE} ADD COLUMN IF NOT EXISTS last_finished_at timestamptz",
+    # The worker cannot be reached from the API pod (egress policy), so it
+    # reports in here; the self-check and /metrics read liveness from this row.
+    f"""CREATE TABLE IF NOT EXISTS {HEARTBEAT_TABLE} (
+        worker               text PRIMARY KEY,
+        pod                  text,
+        version              text,
+        seen_at              timestamptz,
+        started_at           timestamptz,
+        jobs_done            bigint DEFAULT 0,
+        jobs_failed          bigint DEFAULT 0,
+        jobs_retried         bigint DEFAULT 0,
+        catchups             bigint DEFAULT 0,
+        db_reconnects        bigint DEFAULT 0,
+        stale_reclaimed      bigint DEFAULT 0,
+        last_error           text,
+        last_error_category  text
+    )""",
 )
 _migrated = False
 
@@ -184,3 +202,47 @@ def record_freshness(
 def update_freshness(conn: Any, dimension: str, row_count: int) -> None:
     """Back-compat: a successful run that processed ``row_count`` rows."""
     record_freshness(conn, dimension, ok=True, processed_rows=int(row_count))
+
+
+WORKER_KEY = "flex-query-worker"
+
+
+def record_heartbeat(conn: Any, state: Mapping[str, Any], *, pod: str, version: str, started_at: Any) -> None:
+    """The worker's pulse: written on every idle tick and after every job."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            INSERT INTO {HEARTBEAT_TABLE}
+                (worker, pod, version, seen_at, started_at, jobs_done, jobs_failed, jobs_retried,
+                 catchups, db_reconnects, stale_reclaimed, last_error, last_error_category)
+            VALUES (%s, %s, %s, clock_timestamp(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (worker) DO UPDATE SET
+                pod = EXCLUDED.pod,
+                version = EXCLUDED.version,
+                seen_at = EXCLUDED.seen_at,
+                started_at = EXCLUDED.started_at,
+                jobs_done = EXCLUDED.jobs_done,
+                jobs_failed = EXCLUDED.jobs_failed,
+                jobs_retried = EXCLUDED.jobs_retried,
+                catchups = EXCLUDED.catchups,
+                db_reconnects = EXCLUDED.db_reconnects,
+                stale_reclaimed = EXCLUDED.stale_reclaimed,
+                last_error = EXCLUDED.last_error,
+                last_error_category = EXCLUDED.last_error_category
+            """,
+            (
+                WORKER_KEY,
+                pod,
+                version,
+                started_at,
+                int(state.get("jobs_done") or 0),
+                int(state.get("jobs_failed") or 0),
+                int(state.get("jobs_retried") or 0),
+                int(state.get("catchups") or 0),
+                int(state.get("db_reconnects") or 0),
+                int(state.get("stale_reclaimed") or 0),
+                (str(state.get("last_error") or "")[:500]) or None,
+                (str(state.get("last_error_category") or "")) or None,
+            ),
+        )
+    conn.commit()

@@ -9,9 +9,11 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from bifrost_flex_query import __version__
 from bifrost_flex_query.config import load_config, postgres_connect_kwargs
-from bifrost_flex_query.scheduler.daily import load_schedule
-from bifrost_flex_query.schema.ddl import ensure_flex_ops_schema
+from bifrost_flex_query.scheduler.daily import catchup_grace_sec, load_schedule
+from bifrost_flex_query.schema.ddl import ensure_flex_ops_schema, record_heartbeat
+from bifrost_flex_query.worker.catchup import catchup_missed_slots
 from bifrost_flex_query.worker.claim import (
     DEFAULT_RECLAIM_REQUEUE_SEC,
     DEFAULT_STALE_RUNNING_SEC,
@@ -107,10 +109,15 @@ async def run_forever(*, config_path: str | None = None) -> None:
     # Reclaim periodically on idle polls (~ every 12 * poll ≈ 1 min with defaults).
     reclaim_every = max(1, int(worker_cfg.get("reclaim_every_n_idle") or 12))
     health_port = int(os.environ.get("FLEX_WORKER_HEALTH_PORT") or 8080)
+    grace_sec = catchup_grace_sec(scheduler_cfg)
+    catchup_enabled = (os.environ.get("FLEX_CATCHUP_DISABLED") or "").strip() not in ("1", "true", "yes")
+    pod = os.environ.get("HOSTNAME") or "flex-query-worker"
+    started_at = datetime.now(timezone.utc)
     state: dict[str, Any] = {
         "jobs_done": 0,
         "jobs_failed": 0,
         "jobs_retried": 0,
+        "catchups": 0,
         "last_kind": None,
         "last_claim_at": "",
         "last_error": "",
@@ -120,10 +127,17 @@ async def run_forever(*, config_path: str | None = None) -> None:
     }
     start_health_server(health_port, state)
 
+    def heartbeat() -> None:
+        try:
+            db.call(record_heartbeat, state, pod=pod, version=__version__, started_at=started_at)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("heartbeat not recorded: %s", exc)
+
     db = WorkerDb(cfg)
     db.call(ensure_flex_ops_schema)
     reclaimed = db.call(reclaim_stale_running, stale_after_sec=stale_sec, requeue_delay_sec=requeue_sec)
     state["stale_reclaimed"] = len(reclaimed)
+    heartbeat()
     logger.info(
         "flex-query worker started poll=%.1fs stale_running=%ss retry=%s health=:%s startup_reclaimed=%s",
         poll,
@@ -144,6 +158,14 @@ async def run_forever(*, config_path: str | None = None) -> None:
                     more = db.call(reclaim_stale_running, stale_after_sec=stale_sec, requeue_delay_sec=requeue_sec)
                     if more:
                         state["stale_reclaimed"] = int(state["stale_reclaimed"]) + len(more)
+                    if catchup_enabled:
+                        try:
+                            caught = db.call(catchup_missed_slots, scheduler_cfg, grace_sec=grace_sec)
+                            if caught:
+                                state["catchups"] = int(state["catchups"]) + len(caught)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("catch-up check failed: %s", exc)
+                    heartbeat()
                 await asyncio.sleep(poll)
                 continue
             idle_ticks = 0
@@ -184,11 +206,13 @@ async def run_forever(*, config_path: str | None = None) -> None:
                     record_ingest_outcome(kind, cfg, ok=False, error=f"{plan.category.value}: {msg}", job_id=jid)
                 except Exception as fexc:  # noqa: BLE001
                     logger.warning("freshness outcome not recorded for job %s: %s", jid, fexc)
+                heartbeat()
                 continue
             db.call(mark_done, jid, result)
             state["jobs_done"] = int(state["jobs_done"]) + 1
             state["last_error"] = ""
             state["last_error_category"] = ""
+            heartbeat()
             logger.info(
                 "job %s done processed=%s new=%s", jid, result.get("inserted"), result.get("new_rows")
             )

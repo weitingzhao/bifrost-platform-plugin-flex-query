@@ -36,6 +36,7 @@
 - 手动触发（Trade UI 按钮 / XML 上传）同步执行，但也落一行 job（`payload.manual=true`）与 outcome。
 - Worker 用 `clock_timestamp()`，空轮询后 `rollback()`；Postgres 断连自动重连。
 - `/metrics` 由 `bifrost-trade-infra/k8s/monitoring` 的 ServiceMonitor 抓取，告警 `BifrostFlexIngest*`。
+- 0.6.1 操作闭环：`GET /flex/ops/check` 自检（判决 + 下一步 + 可按的动作，`ops/diagnose.py` 纯函数）；`POST /flex/ingest/jobs/{id}/run-now` 跳过延后；worker 空闲时对"计划已过 45 分钟仍无任务"的槽自行补入队（按天去重）；worker 心跳表 `ops_jobs.flex_worker_heartbeat`；手动触发默认每账户 1 次请求（`fallback: true` 才放宽）。
 - `client/flex_client.py`：Trades 的 `dateTime` 保留时分秒；仅日期时取 `FLEX_LOCAL_TZ`（默认 America/New_York）当日零点。Cash transactions 的 `ts` 因是 UNIQUE 键的一部分**保持原样**。
 
 ## 架构边界
