@@ -39,15 +39,19 @@ _FLEX_DATETIME_FORMATS: Tuple[Tuple[str, int, bool], ...] = (
 )
 
 
-def _local_midnight_utc(d: datetime) -> datetime:
-    """A calendar date as the instant its day begins in FLEX_LOCAL_TZ, in UTC."""
+def _local_to_utc(d: datetime) -> datetime:
+    """A naive wall-clock reading in FLEX_LOCAL_TZ, as the UTC instant it names."""
     return d.replace(tzinfo=ZoneInfo(FLEX_LOCAL_TZ)).astimezone(timezone.utc)
 
 
 def parse_flex_datetime(raw: str) -> Tuple[Optional[datetime], bool]:
     """IB's ``dateTime`` attribute → (aware UTC datetime, date_only).
 
-    Timed values are taken as UTC as before; a bare date lands at local midnight.
+    IB writes ``dateTime`` on the exchange's wall clock, not in UTC: a fill at
+    the 09:30 open arrives as ``…;093000``. Timed values are read in
+    FLEX_LOCAL_TZ, and a bare date lands at local midnight. Reading the timed
+    form as UTC put every Flex fill four hours early in summer and five in
+    winter — no stored fill fell inside the 13:30–20:00 UTC session.
     """
     s = (raw or "").strip()
     if not s:
@@ -59,13 +63,11 @@ def parse_flex_datetime(raw: str) -> Tuple[Optional[datetime], bool]:
             parsed = datetime.strptime(s[:n], fmt)
         except ValueError:
             continue
-        if date_only:
-            return _local_midnight_utc(parsed), True
-        return parsed.replace(tzinfo=timezone.utc), False
+        return _local_to_utc(parsed), date_only
     m = re.search(r"(\d{8})", s)
     if m:
         try:
-            return _local_midnight_utc(datetime.strptime(m.group(1), "%Y%m%d")), True
+            return _local_to_utc(datetime.strptime(m.group(1), "%Y%m%d")), True
         except ValueError:
             return None, False
     return None, False
@@ -432,8 +434,8 @@ def parse_trades_xml(xml_body: str) -> List[Dict[str, Any]]:
         account_id = attrs.get("accountId") or report_account_id
         if not account_id:
             account_id = ""
-        # 时间：Flex Trades 通常为 YYYYMMDD;HHMMSS — keep the time; a bare date
-        # (or a tradeDate fallback) is local midnight, not UTC midnight.
+        # 时间：Flex Trades 通常为 YYYYMMDD;HHMMSS — keep the time, read on the
+        # local (exchange) clock; a bare date (or a tradeDate fallback) is local midnight.
         ts_parsed, _date_only = parse_flex_datetime(attrs.get("dateTime", ""))
         if ts_parsed is None:
             ts_parsed, _date_only = parse_flex_datetime(attrs.get("tradeDate") or "")
