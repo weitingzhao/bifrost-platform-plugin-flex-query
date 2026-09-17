@@ -38,6 +38,7 @@
 - `/metrics` 由 `bifrost-trade-infra/k8s/monitoring` 的 ServiceMonitor 抓取，告警 `BifrostFlexIngest*`。
 - 0.6.1 操作闭环：`GET /flex/ops/check` 自检（判决 + 下一步 + 可按的动作，`ops/diagnose.py` 纯函数）；`POST /flex/ingest/jobs/{id}/run-now` 跳过延后；worker 空闲时对"计划已过 45 分钟仍无任务"的槽自行补入队（按天去重）；worker 心跳表 `ops_jobs.flex_worker_heartbeat`；手动触发默认每账户 1 次请求（`fallback: true` 才放宽）。
 - `client/flex_client.py`：Trades 的 `dateTime` 保留时分秒并**按 `FLEX_LOCAL_TZ`（默认 America/New_York）墙钟解释**（0.6.2 起；此前当 UTC 解析，Flex 成交时间偏早 4–5 小时，重拉窗口即更正）；仅日期时取该时区当日零点。Cash transactions 的 `ts` 因是 UNIQUE 键的一部分**保持原样**。
+- `get_statement`（0.6.3 起）：只有含 `<FlexStatement>` 的 `<FlexQueryResponse>` 才算报表已生成；`<FlexStatementResponse>`（Warn **或** Fail，1019 生成中是 Warn）、非 XML、无 FlexStatement 都在原轮询预算内重试，耗尽后抛出带 `[ErrorCode]` 的 ValueError 交给 `worker/retry.py` 分类。此前只认 Fail，新窗口首跑会把 1019 当成空窗口记 `ok, 0`；无成交行的 FlexStatement 仍是合法空窗口。
 
 ## 架构边界
 

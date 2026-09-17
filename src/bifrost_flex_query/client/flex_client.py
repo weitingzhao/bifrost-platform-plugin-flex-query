@@ -160,10 +160,49 @@ def request_report(
     return ref
 
 
+def _local_name(tag: str) -> str:
+    return tag.split("}", 1)[1] if tag and "}" in tag else (tag or "")
+
+
+def _statement_not_ready(body: str) -> Optional[str]:
+    """None when ``body`` is a generated Flex report; otherwise why it is not one.
+
+    GetStatement answers with the report itself — a <FlexQueryResponse> — only
+    once it is generated. Until then it answers with a <FlexStatementResponse>
+    whose Status is Warn or Fail: 1019 "Statement generation in progress"
+    arrives as Warn. Reading only Fail as "not ready" handed that Warn body to
+    the parser, which found no <Trade> in it and reported an empty window.
+
+    A <FlexQueryResponse> holding a <FlexStatement> with no rows is a genuinely
+    empty window and counts as ready.
+    """
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as e:
+        return f"response is not XML ({e})"
+    tag = _local_name(root.tag)
+    if tag == "FlexStatementResponse":
+        status = _text(root, "Status", "") or "no Status"
+        code = _text(root, "ErrorCode", "")
+        msg = _text(root, "ErrorMessage", "") or "Report not ready"
+        # "[NNNN]" is what worker.retry reads to classify the failure.
+        return f"{status} [{code}] {msg}" if code else f"{status}: {msg}"
+    if tag != "FlexQueryResponse":
+        return f"unexpected <{tag}> response"
+    if not any(_local_name(node.tag) == "FlexStatement" for node in root.iter()):
+        return "FlexQueryResponse without a FlexStatement"
+    return None
+
+
 def get_statement(token: str, reference_code: str) -> str:
     """
     Call Flex GetStatement with the given ReferenceCode.
-    Returns raw response body (XML statement). May poll a few times if report not ready.
+
+    Returns the raw body only when it is a generated report (see
+    ``_statement_not_ready``); anything else is polled again, and after
+    MAX_GET_STATEMENT_POLLS attempts raises ValueError carrying IB's last
+    ``[ErrorCode]`` so the caller never mistakes an unready report for an
+    empty one.
     """
     params = {"t": token, "q": reference_code, "v": "3"}
     url = f"{FLEX_GET_STATEMENT_URL}?{urlencode(params)}"
@@ -178,18 +217,12 @@ def get_statement(token: str, reference_code: str) -> str:
             logger.debug("Flex GetStatement attempt %s: %s", attempt + 1, e)
             time.sleep(POLL_INTERVAL_SEC)
             continue
-        # If response looks like error XML (Status Fail), treat as not ready and retry
-        if body.strip().startswith("<?xml") or body.strip().startswith("<"):
-            try:
-                root = ET.fromstring(body)
-                if _text(root, "Status", "").strip().lower() == "fail":
-                    last_err = _text(root, "ErrorMessage", "Report not ready")
-                    logger.debug("Flex GetStatement not ready: %s", last_err)
-                    time.sleep(POLL_INTERVAL_SEC)
-                    continue
-            except ET.ParseError:
-                pass
-        return body
+        not_ready = _statement_not_ready(body)
+        if not_ready is None:
+            return body
+        last_err = not_ready
+        logger.info("Flex GetStatement attempt %s not ready: %s", attempt + 1, not_ready)
+        time.sleep(POLL_INTERVAL_SEC)
     raise ValueError(
         f"Flex GetStatement did not return report after {MAX_GET_STATEMENT_POLLS} attempts. Last: {last_err}"
     )
