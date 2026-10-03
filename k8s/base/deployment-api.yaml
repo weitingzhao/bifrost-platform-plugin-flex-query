@@ -7,8 +7,14 @@ metadata:
     bifrost.flex-query/role: api
 spec:
   replicas: 1
+  # Rolled, not recreated: Recreate left /api/plugin/flex-query with no pod on every
+  # release, and each Trade gateway answered 503. The API is stateless; claiming and
+  # running jobs is flex-query-worker's, which stays Recreate.
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: flex-query-api
