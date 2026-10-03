@@ -61,7 +61,7 @@ def fetch_cash_transactions_from_flex(
         to_date = (payload.get("to_date") or "").strip() or None
         allow_fallback = _truthy(payload.get("fallback", True))
         if from_date is None and to_date is None:
-            from_date, to_date = get_flex_default_range_dates(conn)
+            from_date, to_date = get_flex_default_range_dates(config, conn)
         all_rows: List[Dict[str, Any]] = []
         errors: List[str] = []
         for token, query_id in entries:

@@ -1,4 +1,10 @@
-"""Flex token / query-row / range-day config read+write."""
+"""Flex token / query-row / range-day config read+write.
+
+Range days live in Golden Source ``ops_jobs.flex_settings`` (0.7.0, TD-74), next to
+the query rows in ``raw_broker.settings_flex``; one write updates both in one
+transaction. Until the settings row is seeded, reads fall back to the Trade env
+DB's ``settings`` row, which is where 0.6.x kept them.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +24,13 @@ from bifrost_core.persistence.postgres.connection import (
     get_golden_source_conn_params,
 )
 from psycopg2.extras import RealDictCursor
+
+from bifrost_flex_query.schema.ddl import (
+    SETTINGS_TABLE,
+    ensure_flex_ops_schema,
+    read_flex_settings,
+    seed_flex_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +82,7 @@ def resolve_flex_tokens() -> Tuple[str, str, str, str]:
 
 
 def open_trade_conn(config: dict) -> Any:
-    """Open a psycopg2 connection to the Trade env DB (settings_flex query ids)."""
+    """Open a psycopg2 connection to the Trade env DB (settings_flex query ids, read-only)."""
     from bifrost_flex_query.config import trade_postgres_connect_kwargs
 
     # Prefer explicit trade_postgres kwargs so a mis-shaped core config cannot
@@ -161,45 +174,153 @@ def get_flex_config(conn: Any, purpose: Optional[str] = None) -> Any:
         return [] if purpose is not None else {"host_token": None, "secondary_token": None, "rows": []}
 
 
-def get_flex_range_days(conn: Any) -> Tuple[int, int]:
-    """Return (flex_default_range_days, flex_init_range_days) from settings id=1."""
-    default_days = 30
-    init_days = 360
+# What 0.6.x returned when nothing could be read; kept so a fresh cluster behaves the same.
+_DEFAULT_RANGE_DAYS = 30
+_DEFAULT_INIT_RANGE_DAYS = 360
+
+
+def read_trade_flex_range_days(trade_conn: Any) -> Optional[Tuple[int, int]]:
+    """Pre-0.7.0 read: ``settings`` id=1 of the Trade env DB. None when unreadable.
+
+    Used only to seed ``ops_jobs.flex_settings`` and as the fallback until it is
+    seeded; goes away with the Trade ``settings.flex_*_range_days`` columns.
+    """
     try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with trade_conn.cursor() as cur:
             cur.execute(
                 "SELECT flex_default_range_days, flex_init_range_days FROM settings WHERE id = 1"
             )
-            row = cur.fetchone() or {}
-        if row.get("flex_default_range_days") is not None:
-            try:
-                default_days = max(1, int(row["flex_default_range_days"]))
-            except (TypeError, ValueError):
-                pass
-        if row.get("flex_init_range_days") is not None:
-            try:
-                init_days = max(1, int(row["flex_init_range_days"]))
-            except (TypeError, ValueError):
-                pass
+            row = cur.fetchone()
+        if row is None:
+            return None
+        if isinstance(row, dict):
+            default_days, init_days = row.get("flex_default_range_days"), row.get("flex_init_range_days")
+        else:
+            default_days, init_days = row[0], row[1]
+        if default_days is None or init_days is None:
+            return None
+        return max(1, int(default_days)), max(1, int(init_days))
     except Exception as e:
-        logger.debug("get_flex_range_days failed: %s", e)
-    return default_days, init_days
+        logger.debug("read_trade_flex_range_days failed: %s", e)
+        try:
+            trade_conn.rollback()
+        except Exception:
+            pass
+        return None
 
 
-def get_flex_default_range_dates(conn: Any) -> Tuple[str, str]:
+def _read_gs_flex_range_days(gs_conn: Any) -> Optional[Tuple[int, int]]:
+    try:
+        return read_flex_settings(gs_conn)
+    except Exception as e:
+        logger.debug("read %s failed: %s", SETTINGS_TABLE, e)
+        try:
+            gs_conn.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def get_flex_range_days(trade_conn: Any, gs_conn: Any = None) -> Tuple[int, int]:
+    """Return (flex_default_range_days, flex_init_range_days).
+
+    Golden Source ``ops_jobs.flex_settings`` first; until that row is seeded, the
+    Trade env DB's ``settings`` row; failing both, the 0.6.x defaults.
+    """
+    got = _read_gs_flex_range_days(gs_conn) if gs_conn is not None else None
+    if got is None and trade_conn is not None:
+        got = read_trade_flex_range_days(trade_conn)
+    if got is None:
+        return _DEFAULT_RANGE_DAYS, _DEFAULT_INIT_RANGE_DAYS
+    return got
+
+
+def open_golden_conn(config: dict) -> Any:
+    """Golden Source connection from a core-shaped config (``golden_source`` section)."""
+    return psycopg2.connect(**{**get_golden_source_conn_params(config), "connect_timeout": 10})
+
+
+def resolve_flex_range_days(config: dict, trade_conn: Any) -> Tuple[int, int]:
+    """get_flex_range_days with a short-lived Golden Source connection from ``config``."""
+    gs = None
+    try:
+        try:
+            gs = open_golden_conn(config)
+        except Exception as e:
+            logger.warning("flex range days: Golden Source unavailable, using Trade DB: %s", e)
+        return get_flex_range_days(trade_conn, gs)
+    finally:
+        if gs is not None:
+            try:
+                gs.close()
+            except Exception:
+                pass
+
+
+def seed_flex_settings_from_trade(gs_conn: Any, trade_conn: Any) -> str:
+    """Copy the Trade env DB's range days into ``ops_jobs.flex_settings`` once.
+
+    Returns ``present`` (row already there), ``seeded`` (this call inserted it) or
+    ``pending`` (Trade value unreadable; nothing written, readers keep falling back).
+    """
+    if _read_gs_flex_range_days(gs_conn) is not None:
+        return "present"
+    legacy = read_trade_flex_range_days(trade_conn)
+    if legacy is None:
+        return "pending"
+    inserted = seed_flex_settings(gs_conn, legacy[0], legacy[1])
+    if inserted:
+        logger.info("%s seeded from Trade settings: default=%s init=%s", SETTINGS_TABLE, *legacy)
+        return "seeded"
+    return "present"
+
+
+def ensure_flex_settings_seeded(gs_conn: Any, config: dict) -> str:
+    """Ensure-path hook: seed from the Trade DB that ``config`` points the plugin at.
+
+    Never raises; a failure leaves the row unseeded and readers on the fallback.
+    """
+    trade = None
+    try:
+        if _read_gs_flex_range_days(gs_conn) is not None:
+            # End the read so a long-lived connection (the worker's) is not left idle in transaction.
+            gs_conn.commit()
+            return "present"
+        trade = open_trade_conn(config)
+        status = seed_flex_settings_from_trade(gs_conn, trade)
+        gs_conn.commit()
+        return status
+    except Exception as e:
+        logger.warning("%s seed skipped: %s", SETTINGS_TABLE, e)
+        try:
+            gs_conn.rollback()
+        except Exception:
+            pass
+        return "pending"
+    finally:
+        if trade is not None:
+            try:
+                trade.close()
+            except Exception:
+                pass
+
+
+def _range_dates(days: int) -> Tuple[str, str]:
+    yesterday = date.today() - timedelta(days=1)
+    start = yesterday - timedelta(days=days)
+    return start.strftime("%Y%m%d"), yesterday.strftime("%Y%m%d")
+
+
+def get_flex_default_range_dates(config: dict, trade_conn: Any) -> Tuple[str, str]:
     """Return (from_date, to_date) in yyyyMMdd. to_date = yesterday."""
-    days, _ = get_flex_range_days(conn)
-    yesterday = date.today() - timedelta(days=1)
-    start = yesterday - timedelta(days=days)
-    return start.strftime("%Y%m%d"), yesterday.strftime("%Y%m%d")
+    days, _ = resolve_flex_range_days(config, trade_conn)
+    return _range_dates(days)
 
 
-def get_flex_init_range_dates(conn: Any) -> Tuple[str, str]:
+def get_flex_init_range_dates(config: dict, trade_conn: Any) -> Tuple[str, str]:
     """Return (from_date, to_date) in yyyyMMdd for initial/full pull. to_date = yesterday."""
-    _, days = get_flex_range_days(conn)
-    yesterday = date.today() - timedelta(days=1)
-    start = yesterday - timedelta(days=days)
-    return start.strftime("%Y%m%d"), yesterday.strftime("%Y%m%d")
+    _, days = resolve_flex_range_days(config, trade_conn)
+    return _range_dates(days)
 
 
 def get_flex_executions_stats(conn: Any) -> Dict[str, Any]:
@@ -242,10 +363,15 @@ def write_flex_config(
     flex_default_range_days: Optional[int] = None,
     flex_init_range_days: Optional[int] = None,
 ) -> tuple[bool, Optional[str]]:
-    """Write Flex range days to settings and optionally replace GS query rows.
+    """Write range days and/or replace the query rows, in one Golden Source transaction.
 
-    Token writes require K8s Secret env (`FLEX_HOST_TOKEN` / `FLEX_SECONDARY_TOKEN`);
-    Trade DB token columns were dropped in Wave 11.
+    Range days go to ``ops_jobs.flex_settings``; ``accounts`` replace
+    ``raw_broker.settings_flex``. Either both land or neither does. The Trade env
+    DBs are no longer written (TD-74).
+
+    Tokens are never persisted here: they live in the K8s Secret (``FLEX_HOST_TOKEN``
+    / ``FLEX_SECONDARY_TOKEN``, Wave 11). A write that carries token fields is
+    accepted only when that Secret is configured, and reports it as the target.
 
     Returns ``(ok, token_write_target)`` where ``token_write_target`` is
     ``secret`` when Secret/env is canonical, or ``None`` when no token fields
@@ -275,39 +401,46 @@ def write_flex_config(
     if token_fields_requested and not secret_canonical:
         logger.warning("write_flex_config: token write rejected — configure K8s Secret env")
         return False, None
-
-    sets: List[str] = []
-    args: List[Any] = []
     if token_fields_requested and secret_canonical:
         token_write_target = "secret"
+
     days_val = max(1, int(flex_default_range_days)) if flex_default_range_days is not None else None
     init_val = max(1, int(flex_init_range_days)) if flex_init_range_days is not None else None
-    if days_val is not None:
-        sets.append("flex_default_range_days = COALESCE(%s, flex_default_range_days)")
-        args.append(days_val)
-    if init_val is not None:
-        sets.append("flex_init_range_days = COALESCE(%s, flex_init_range_days)")
-        args.append(init_val)
+    range_requested = days_val is not None or init_val is not None
 
-    if not sets and valid_accounts is None:
+    if not range_requested and valid_accounts is None:
         return True, token_write_target
 
-    conn = None
     golden = None
     try:
-        if sets:
-            params = get_conn_params(status_config)
-            conn = psycopg2.connect(**params)
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE settings SET " + ", ".join(sets) + " WHERE id = 1",
-                    tuple(args),
+        golden = open_golden_conn(status_config)
+        if range_requested:
+            # Creates ops_jobs.flex_settings when this process has not yet; commits.
+            ensure_flex_ops_schema(golden)
+            insert_vals = (days_val, init_val)
+            if days_val is None or init_val is None:
+                # First write before the row is seeded: the half not in the request
+                # keeps today's effective value (Trade DB, else the 0.6.x default).
+                current = _read_gs_flex_range_days(golden)
+                if current is None:
+                    current = _effective_trade_range_days(status_config)
+                insert_vals = (
+                    days_val if days_val is not None else current[0],
+                    init_val if init_val is not None else current[1],
                 )
-            conn.commit()
-        if valid_accounts is not None:
-            gs_params = get_golden_source_conn_params(status_config)
-            golden = psycopg2.connect(**{**gs_params, "connect_timeout": 10})
-            with golden.cursor() as cur:
+        with golden.cursor() as cur:
+            if range_requested:
+                cur.execute(
+                    f"INSERT INTO {SETTINGS_TABLE} AS s "
+                    f"(id, flex_default_range_days, flex_init_range_days, updated_at) "
+                    f"VALUES (1, %s, %s, now()) "
+                    f"ON CONFLICT (id) DO UPDATE SET "
+                    f"flex_default_range_days = COALESCE(%s, s.flex_default_range_days), "
+                    f"flex_init_range_days = COALESCE(%s, s.flex_init_range_days), "
+                    f"updated_at = now()",
+                    (insert_vals[0], insert_vals[1], days_val, init_val),
+                )
+            if valid_accounts is not None:
                 cur.execute(f"DELETE FROM {GOLDEN_SETTINGS_FLEX}")
                 for i, a in enumerate(valid_accounts):
                     qh = (a.get("query_host_id") or "").strip()
@@ -320,19 +453,38 @@ def write_flex_config(
                         f"VALUES (%s, %s, %s, %s, %s)",
                         (i, query_label, purpose, qh, qs),
                     )
-            golden.commit()
+        golden.commit()
         logger.info(
-            "write_flex_config: settings_sets=%d gs_rows=%s token_write_target=%s",
-            len(sets),
+            "write_flex_config: range=%s gs_rows=%s token_write_target=%s",
+            None if not range_requested else (days_val, init_val),
             None if valid_accounts is None else len(valid_accounts),
             token_write_target,
         )
         return True, token_write_target
     except Exception as e:
         logger.warning("write_flex_config failed: %s", e)
+        if golden is not None:
+            try:
+                golden.rollback()
+            except Exception:
+                pass
         return False, token_write_target
     finally:
-        if conn is not None:
-            conn.close()
         if golden is not None:
             golden.close()
+
+
+def _effective_trade_range_days(config: dict) -> Tuple[int, int]:
+    trade = None
+    try:
+        trade = open_trade_conn(config)
+        return get_flex_range_days(trade)
+    except Exception as e:
+        logger.debug("trade range read for first write failed: %s", e)
+        return _DEFAULT_RANGE_DAYS, _DEFAULT_INIT_RANGE_DAYS
+    finally:
+        if trade is not None:
+            try:
+                trade.close()
+            except Exception:
+                pass

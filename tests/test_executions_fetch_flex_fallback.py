@@ -159,7 +159,7 @@ def test_fetch_flex_service_uses_fallback_on_1003() -> None:
             return_value={"count": 10, "max_date": None},
         ),
         patch(
-            "bifrost_flex_query.orchestration.trades.get_flex_range_days",
+            "bifrost_flex_query.orchestration.trades.resolve_flex_range_days",
             return_value=(30, 270),
         ),
         patch(

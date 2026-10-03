@@ -1,4 +1,4 @@
-"""Flex config summary (read) and write (tokens + query rows + range days)."""
+"""Flex config summary (read) and write (query rows + range days; tokens stay in the Secret)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from bifrost_flex_query.api.deps import db_conn, require_config_write_identity, trade_db_conn
-from bifrost_flex_query.config import load_config, trade_config_for_core, trade_token_dbnames
+from bifrost_flex_query.config import load_config, trade_config_for_core
 
 router = APIRouter(prefix="/flex/config", tags=["config"])
 
@@ -31,33 +31,11 @@ def config_summary(
     gs_conn: Any = Depends(db_conn),
     trade_conn: Any = Depends(trade_db_conn),
 ) -> dict[str, Any]:
-    host_tok = ""
-    sec_tok = ""
-    default_days = 30
-    init_days = 360
-    host_src = "none"
-    sec_src = "none"
-    try:
-        from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
+    from bifrost_flex_query.orchestration.config_rw import get_flex_range_days, resolve_flex_tokens
 
-        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens()
-        with trade_conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT flex_default_range_days, flex_init_range_days
-                FROM settings WHERE id = 1
-                """
-            )
-            row = cur.fetchone() or {}
-        if row.get("flex_default_range_days") is not None:
-            default_days = int(row["flex_default_range_days"])
-        if row.get("flex_init_range_days") is not None:
-            init_days = int(row["flex_init_range_days"])
-    except Exception:
-        trade_conn.rollback()
-        from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens
-
-        host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens()
+    host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens()
+    # ops_jobs.flex_settings (TD-74); the Trade DB row only until that is seeded.
+    default_days, init_days = get_flex_range_days(trade_conn, gs_conn)
 
     query_rows: list[dict[str, Any]] = []
     try:
@@ -137,27 +115,18 @@ def normalize_flex_accounts(raw: Any) -> list[dict[str, Any]]:
     return accounts
 
 
-_WRITE_FIELDS = (
-    "host_token",
-    "secondary_token",
-    "accounts",
-    "flex_default_range_days",
-    "flex_init_range_days",
-)
-_TOKEN_FIELDS = (
-    "host_token",
-    "secondary_token",
-    "flex_default_range_days",
-    "flex_init_range_days",
-)
+_TOKEN_FIELDS = ("host_token", "secondary_token")
+_RANGE_FIELDS = ("flex_default_range_days", "flex_init_range_days")
+_WRITE_FIELDS = (*_TOKEN_FIELDS, "accounts", *_RANGE_FIELDS)
 
 
 @router.post("/write", dependencies=[Depends(require_config_write_identity)])
 def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Persist Flex tokens (Trade DB ``settings``) and query rows (``raw_broker.settings_flex``).
+    """Persist range days (``ops_jobs.flex_settings``) and query rows (``raw_broker.settings_flex``).
 
-    ``trade_postgres`` must have UPDATE on ``public.settings`` (same role that reads tokens).
-    Tokens fan-out to ``trade_postgres.token_dbnames``; query rows write Golden Source once.
+    Both are in Golden Source and land in one transaction: all or nothing. Tokens
+    are not persisted here (they live in the K8s Secret, see ``write_flex_config``);
+    a token field only reports ``token_write_target``.
     """
     from bifrost_flex_query.orchestration.config_rw import write_flex_config
 
@@ -184,32 +153,16 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
     secondary_arg = None if secondary_token is None else str(secondary_token)
 
     cfg = load_config()
-    token_write_target: str | None = None
-    if any(key in payload for key in _TOKEN_FIELDS):
-        for dbname in trade_token_dbnames(cfg):
-            ok, target = write_flex_config(
-                trade_config_for_core(cfg, dbname=dbname),
-                host_arg,
-                secondary_arg,
-                None,
-                default_days,
-                init_days,
-            )
-            if not ok:
-                raise HTTPException(status_code=500, detail="failed to write flex config")
-            if target is not None:
-                token_write_target = target
-    if accounts is not None:
-        ok, _ = write_flex_config(
-            trade_config_for_core(cfg),
-            None,
-            None,
-            accounts,
-            None,
-            None,
-        )
-        if not ok:
-            raise HTTPException(status_code=500, detail="failed to write flex config")
+    ok, token_write_target = write_flex_config(
+        trade_config_for_core(cfg),
+        host_arg,
+        secondary_arg,
+        accounts,
+        default_days,
+        init_days,
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="failed to write flex config")
     return {
         "ok": True,
         "host_token": (str(host_token).strip() or None) if host_token is not None else None,
@@ -218,5 +171,7 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
         "flex_default_range_days": default_days,
         "flex_init_range_days": init_days,
         "token_write_target": token_write_target,
-        "token_dbnames": trade_token_dbnames(cfg) if any(key in payload for key in _TOKEN_FIELDS) else [],
+        # 0.6.x listed the Trade DBs the range fanned out to; nothing is fanned out
+        # since 0.7.0 (TD-74). Kept empty for one version, then removed.
+        "token_dbnames": [],
     }

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from bifrost_flex_query.api.app import create_app
 from bifrost_flex_query.api.config_summary import config_summary, mask_token_last4
 from bifrost_flex_query.api.deps import db_conn, trade_db_conn
-from bifrost_flex_query.config import trade_postgres_connect_kwargs, trade_token_dbnames
+from bifrost_flex_query.config import trade_postgres_connect_kwargs
 
 
 class _Cursor:
@@ -20,7 +20,10 @@ class _Cursor:
         if self.parent.raise_on_execute:
             raise RuntimeError("boom")
         q = query.lower()
-        if "from settings" in q:
+        if "ops_jobs.flex_settings" in q:
+            self.parent._one = self.parent.flex_settings
+            self.parent._rows = [self.parent.flex_settings] if self.parent.flex_settings else []
+        elif "from settings" in q:
             self.parent._one = self.parent.settings
             self.parent._rows = [self.parent.settings] if self.parent.settings else []
         elif "settings_flex" in q:
@@ -49,9 +52,11 @@ class _Conn:
         *,
         settings: dict[str, Any] | None = None,
         flex_rows: list[dict[str, Any]] | None = None,
+        flex_settings: dict[str, Any] | None = None,
         raise_on_execute: bool = False,
     ) -> None:
         self.settings = settings
+        self.flex_settings = flex_settings
         self.flex_rows = flex_rows or []
         self.raise_on_execute = raise_on_execute
         self.rolled_back = 0
@@ -138,10 +143,19 @@ def test_config_summary_empty_on_query_error() -> None:
     gs = _Conn(raise_on_execute=True)
     body = config_summary(gs_conn=gs, trade_conn=trade)
     assert trade.rolled_back == 1
-    assert gs.rolled_back == 1
+    # flex_settings read + query-row read
+    assert gs.rolled_back == 2
     assert body["tokens"]["host_token_set"] is False
     assert body["query_rows"] == []
     assert body["range_days"]["default"] == 30
+
+
+def test_config_summary_range_from_gs_settings_row() -> None:
+    """Once ops_jobs.flex_settings is seeded it wins over the Trade DB row (TD-74)."""
+    trade = _Conn(settings={"flex_default_range_days": 14, "flex_init_range_days": 180})
+    gs = _Conn(flex_settings={"flex_default_range_days": 21, "flex_init_range_days": 400})
+    body = config_summary(gs_conn=gs, trade_conn=trade)
+    assert body["range_days"] == {"default": 21, "init": 400}
 
 
 def test_config_summary_http_override(monkeypatch) -> None:
@@ -185,24 +199,13 @@ def test_config_summary_http_override(monkeypatch) -> None:
     assert body["query_rows"][0]["query_secondary_id"] is None
 
 
-def test_trade_token_dbnames_defaults_to_dbname() -> None:
-    assert trade_token_dbnames({"trade_postgres": {"dbname": "bifrost_dev"}}) == ["bifrost_dev"]
-    assert trade_token_dbnames(
-        {
-            "trade_postgres": {
-                "dbname": "bifrost_dev",
-                "token_dbnames": ["bifrost_dev", "bifrost_stg", "bifrost_prod", "bifrost_dev"],
-            }
-        }
-    ) == ["bifrost_dev", "bifrost_stg", "bifrost_prod"]
-
-
 GATEWAY = {"X-Bifrost-Trade-Gateway": "1"}
 
 FANOUT_CFG = {
     "trade_postgres": {
         "host": "db",
         "dbname": "bifrost_dev",
+        # 0.6.x fanned range writes out to these; 0.7.0 ignores the key (TD-74).
         "token_dbnames": ["bifrost_dev", "bifrost_stg", "bifrost_prod"],
     },
     "golden_source": {"host": "db", "database": "bifrost_golden_source"},
@@ -276,16 +279,15 @@ def test_config_write_http(monkeypatch: Any) -> None:
     body = r.json()
     assert body["ok"] is True
     assert body["accounts"][0]["query_host_id"] == "999"
-    assert body["token_dbnames"] == ["bifrost_dev", "bifrost_stg", "bifrost_prod"]
-    assert len(calls) == 4
-    token_calls = [c for c in calls if c["accounts"] is None]
-    gs_calls = [c for c in calls if c["accounts"] is not None]
-    assert [c["dbname"] for c in token_calls] == ["bifrost_dev", "bifrost_stg", "bifrost_prod"]
-    assert token_calls[0]["host_token"] == "tok"
-    assert token_calls[0]["days"] == 14
-    assert len(gs_calls) == 1
-    assert gs_calls[0]["host_token"] is None
-    assert gs_calls[0]["accounts"][0]["query_host_id"] == "999"
+    assert body["token_dbnames"] == []
+    assert body["token_write_target"] == "secret"
+    assert body["flex_default_range_days"] == 14
+    # One call: range days and query rows land in one Golden Source transaction.
+    assert len(calls) == 1
+    assert calls[0]["host_token"] == "tok"
+    assert calls[0]["days"] == 14
+    assert calls[0]["init"] == 180
+    assert calls[0]["accounts"][0]["query_host_id"] == "999"
 
 
 def test_config_write_empty_body_400() -> None:

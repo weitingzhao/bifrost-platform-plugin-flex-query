@@ -46,7 +46,7 @@
 - **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`；Flex HTTPS 客户端 + 编排引擎内化在 `bifrost_flex_query.client` / `orchestration`
 - **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
 - **数据**: 写 `raw_broker.executions_raw_flex` / `raw_broker.transactions`；队列在 Golden Source `ops_jobs.*`
-- **Trade DB 仅配置**: `public.settings` Flex token（Wave 4: **deprecated fallback**）；`brokerage.settings_flex` FDW 读 query id — **不在 Trade DB 建 flex_ops**
+- **Trade DB 只读**: `brokerage.settings_flex` FDW 读 query id；Flex token 只在 K8s Secret（Wave 11）；抓取区间（range days）0.7.0 起在 GS `ops_jobs.flex_settings`（单行，与 `raw_broker.settings_flex` 同事务写，TD-74），Trade `settings.flex_*_range_days` 只用于首次种子与种子前的回落读 — **不在 Trade DB 建 flex_ops，也不写 Trade DB**
 - **flex_ops.***: **DEPRECATED** (Wave 6.3) compat views on Golden Source → use `ops_jobs.*` directly
 
 ## Token source (Wave 11 / 0.5.1)

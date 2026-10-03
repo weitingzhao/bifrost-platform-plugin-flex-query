@@ -104,30 +104,12 @@ def postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
-def trade_token_dbnames(cfg: dict[str, Any] | None = None) -> list[str]:
-    """Trade DBs that receive Flex token / range-day fan-out writes."""
-    data = cfg if cfg is not None else load_config()
-    trade = dict(data.get("trade_postgres") or {})
-    names: list[str] = []
-    raw = trade.get("token_dbnames")
-    if isinstance(raw, list):
-        for item in raw:
-            name = str(item or "").strip()
-            if name and name not in names:
-                names.append(name)
-    default = str(
-        trade.get("dbname")
-        or trade.get("database")
-        or os.environ.get("FLEX_TRADE_PG_DB")
-        or "bifrost_dev"
-    ).strip()
-    if not names:
-        return [default or "bifrost_dev"]
-    return names
-
-
 def trade_postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Connect kwargs for per-env Trade DB (public.settings Flex tokens)."""
+    """Connect kwargs for the Trade env DB the plugin reads (``FLEX_TRADE_PG_*``).
+
+    Read-only since 0.7.0: ``brokerage.settings_flex`` query ids (FDW), Flex execution
+    stats, and the pre-0.7.0 range days used to seed ``ops_jobs.flex_settings``.
+    """
     data = cfg if cfg is not None else load_config()
     trade = dict(data.get("trade_postgres") or {})
     pg = dict(data.get("postgres") or {})

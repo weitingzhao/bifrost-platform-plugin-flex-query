@@ -1,9 +1,15 @@
-"""write_flex_config: omitted tokens are no-ops; empty accounts refuse GS DELETE."""
+"""write_flex_config: range days + query rows in one Golden Source transaction (TD-74).
+
+Omitted tokens are no-ops; empty accounts refuse the GS DELETE; the Trade env DBs
+are never written.
+"""
 
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 from unittest.mock import patch
+
+import pytest
 
 from bifrost_flex_query.orchestration.config_rw import write_flex_config
 
@@ -13,9 +19,22 @@ CFG = {"sink": "postgres", "postgres": {"dbname": "bifrost_dev"}}
 class _Cursor:
     def __init__(self, parent: "_Conn") -> None:
         self.parent = parent
+        self._one: Any = None
+        self.rowcount = 0
 
     def execute(self, sql: str, params: Any = None) -> None:
+        if self.parent.fail_on and self.parent.fail_on in sql:
+            raise RuntimeError("boom")
         self.parent.calls.append((sql, params))
+        if "FROM ops_jobs.flex_settings" in sql:
+            self._one = self.parent.settings_row
+        elif "FROM settings" in sql:
+            self._one = self.parent.trade_row
+        else:
+            self._one = None
+
+    def fetchone(self) -> Any:
+        return self._one
 
     def __enter__(self) -> "_Cursor":
         return self
@@ -25,10 +44,21 @@ class _Cursor:
 
 
 class _Conn:
-    def __init__(self, name: str) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        settings_row: Optional[Tuple[int, int]] = None,
+        trade_row: Optional[Tuple[int, int]] = None,
+        fail_on: str | None = None,
+    ) -> None:
         self.name = name
+        self.settings_row = settings_row
+        self.trade_row = trade_row
+        self.fail_on = fail_on
         self.calls: List[Tuple[str, Any]] = []
         self.commits = 0
+        self.rollbacks = 0
         self.closed = False
 
     def cursor(self) -> _Cursor:
@@ -37,148 +67,167 @@ class _Conn:
     def commit(self) -> None:
         self.commits += 1
 
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
     def close(self) -> None:
         self.closed = True
 
+    def sql(self) -> str:
+        return "\n".join(c[0] for c in self.calls)
 
-def _patch_connect(trade: _Conn, gs: _Conn):
+
+@pytest.fixture()
+def conns():
+    """(trade, gs, opened) with connect patched; ``opened`` lists db names connected to."""
+    state: dict[str, Any] = {"trade": _Conn("trade"), "gs": _Conn("gs"), "opened": []}
+
     def fake_connect(**kwargs: Any) -> _Conn:
         db = kwargs.get("dbname")
-        if db == "trade":
-            return trade
-        return gs
+        state["opened"].append(db)
+        return state["gs"] if db == "gs" else state["trade"]
 
-    return (
+    with (
         patch(
             "bifrost_flex_query.orchestration.config_rw.psycopg2.connect",
             side_effect=fake_connect,
         ),
         patch(
-            "bifrost_flex_query.orchestration.config_rw.get_conn_params",
-            return_value={"dbname": "trade"},
-        ),
-        patch(
             "bifrost_flex_query.orchestration.config_rw.get_golden_source_conn_params",
             return_value={"dbname": "gs"},
         ),
+        patch("bifrost_flex_query.orchestration.config_rw.ensure_flex_ops_schema") as ensure,
+    ):
+        state["ensure"] = ensure
+        yield state
+
+
+def _upsert(gs: _Conn) -> Tuple[str, Any]:
+    hits = [c for c in gs.calls if "INSERT INTO ops_jobs.flex_settings" in c[0]]
+    assert len(hits) == 1
+    return hits[0]
+
+
+def test_range_only_updates_gs_row_and_not_trade(conns) -> None:
+    conns["gs"].settings_row = (30, 270)
+    ok, target = write_flex_config(CFG, None, None, None, 14, None)
+    assert ok is True
+    assert target is None
+    sql, params = _upsert(conns["gs"])
+    assert "ON CONFLICT (id) DO UPDATE" in sql
+    # Insert half only matters when the row is absent; the update keeps init (NULL → COALESCE).
+    assert params == (14, 270, 14, None)
+    assert conns["gs"].commits == 1
+    assert conns["gs"].closed is True
+    assert conns["opened"] == ["gs"]
+    assert "UPDATE settings" not in conns["trade"].sql()
+    conns["ensure"].assert_called_once()
+
+
+def test_first_write_before_seed_keeps_trade_value_for_other_half(conns) -> None:
+    conns["gs"].settings_row = None
+    conns["trade"].trade_row = (30, 270)
+    ok, _ = write_flex_config(CFG, None, None, None, 14, None)
+    assert ok is True
+    _, params = _upsert(conns["gs"])
+    assert params == (14, 270, 14, None)
+    # The Trade DB is only read, never written.
+    assert all(sql.lstrip().upper().startswith("SELECT") for sql, _ in conns["trade"].calls)
+    assert conns["trade"].closed is True
+
+
+def test_range_and_accounts_share_one_transaction(conns, monkeypatch) -> None:
+    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
+    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
+    ok, target = write_flex_config(
+        CFG,
+        "tok",
+        "",
+        [
+            {
+                "query_host_id": "111",
+                "query_secondary_id": "222",
+                "query_label": "Trades",
+                "purpose": "trades",
+            }
+        ],
+        14,
+        180,
     )
-
-
-def test_omit_tokens_does_not_null_columns() -> None:
-    trade = _Conn("trade")
-    gs = _Conn("gs")
-    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
-    with p_connect, p_trade, p_gs:
-        ok, target = write_flex_config(CFG, None, None, None, 30, None)
-    assert ok is True
-    assert target is None
-    assert len(trade.calls) == 1
-    sql, params = trade.calls[0]
-    assert "ib_flex_host_token" not in sql
-    assert "ib_flex_secondary_token" not in sql
-    assert "flex_default_range_days" in sql
-    assert params == (30,)
-    assert gs.calls == []
-    assert trade.commits == 1
-    assert trade.closed is True
-    assert gs.closed is False
-
-
-def test_empty_accounts_refuses_without_delete() -> None:
-    trade = _Conn("trade")
-    gs = _Conn("gs")
-    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
-    with p_connect, p_trade, p_gs:
-        ok, _ = write_flex_config(CFG, "tok", None, [])
-    assert ok is False
-    assert trade.calls == []
-    assert gs.calls == []
-
-
-def test_blank_query_host_accounts_refuses() -> None:
-    trade = _Conn("trade")
-    gs = _Conn("gs")
-    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
-    with p_connect, p_trade, p_gs:
-        ok, _ = write_flex_config(
-            CFG,
-            None,
-            None,
-            [{"query_host_id": "  ", "purpose": "trades"}],
-        )
-    assert ok is False
-    assert gs.calls == []
-
-
-def test_token_write_without_secret_env_rejected(monkeypatch) -> None:
-    monkeypatch.delenv("FLEX_HOST_TOKEN", raising=False)
-    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
-    trade = _Conn("trade")
-    gs = _Conn("gs")
-    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
-    with p_connect, p_trade, p_gs:
-        ok, target = write_flex_config(CFG, "", None, None)
-    assert ok is False
-    assert target is None
-    assert trade.calls == []
-
-
-def test_token_write_with_secret_env_skips_db_columns(monkeypatch) -> None:
-    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
-    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
-    trade = _Conn("trade")
-    gs = _Conn("gs")
-    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
-    with p_connect, p_trade, p_gs:
-        ok, target = write_flex_config(CFG, "tok", None, None)
     assert ok is True
     assert target == "secret"
-    assert trade.calls == []
-
-
-def test_accounts_replace_gs_rows(monkeypatch) -> None:
-    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
-    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
-    trade = _Conn("trade")
-    gs = _Conn("gs")
-    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
-    with p_connect, p_trade, p_gs:
-        ok, target = write_flex_config(
-            CFG,
-            "tok",
-            "",
-            [
-                {
-                    "query_host_id": "111",
-                    "query_secondary_id": "222",
-                    "query_label": "Trades",
-                    "purpose": "trades",
-                }
-            ],
-            14,
-            180,
-        )
-    assert ok is True
-    assert target == "secret"
-    assert len(trade.calls) == 1
-    trade_sql, trade_params = trade.calls[0]
-    assert "ib_flex_host_token" not in trade_sql
-    assert "flex_default_range_days" in trade_sql
-    assert trade_params == (14, 180)
+    gs = conns["gs"]
+    _, params = _upsert(gs)
+    assert params == (14, 180, 14, 180)
     assert any("DELETE FROM" in sql for sql, _ in gs.calls)
-    insert = [c for c in gs.calls if "INSERT INTO" in c[0]]
+    insert = [c for c in gs.calls if "INSERT INTO raw_broker" in c[0]]
     assert len(insert) == 1
     assert insert[0][1][3] == "111"
     assert insert[0][1][4] == "222"
     assert gs.commits == 1
+    assert conns["opened"] == ["gs"]
 
 
-def test_nothing_to_write_is_success_noop() -> None:
-    trade = _Conn("trade")
-    gs = _Conn("gs")
-    p_connect, p_trade, p_gs = _patch_connect(trade, gs)
-    with p_connect, p_trade, p_gs:
-        ok, _ = write_flex_config(CFG, None, None, None)
+def test_query_row_failure_rolls_back_range_too(conns) -> None:
+    conns["gs"].settings_row = (30, 270)
+    conns["gs"].fail_on = "INSERT INTO raw_broker"
+    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "111", "purpose": "trades"}], 14, 180)
+    assert ok is False
+    gs = conns["gs"]
+    _upsert(gs)  # the range statement ran ...
+    assert gs.commits == 0  # ... but nothing was committed
+    assert gs.rollbacks == 1
+    assert gs.closed is True
+
+
+def test_range_failure_leaves_query_rows_untouched(conns) -> None:
+    conns["gs"].settings_row = (30, 270)
+    conns["gs"].fail_on = "INSERT INTO ops_jobs.flex_settings"
+    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "111", "purpose": "trades"}], 14, None)
+    assert ok is False
+    assert "DELETE FROM" not in conns["gs"].sql()
+    assert conns["gs"].commits == 0
+
+
+def test_accounts_only_does_not_touch_settings(conns) -> None:
+    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "111", "purpose": "trades"}])
     assert ok is True
-    assert trade.calls == []
-    assert gs.calls == []
+    assert "flex_settings" not in conns["gs"].sql()
+    conns["ensure"].assert_not_called()
+    assert conns["gs"].commits == 1
+
+
+def test_empty_accounts_refuses_without_delete(conns) -> None:
+    ok, _ = write_flex_config(CFG, "tok", None, [])
+    assert ok is False
+    assert conns["opened"] == []
+
+
+def test_blank_query_host_accounts_refuses(conns) -> None:
+    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "  ", "purpose": "trades"}])
+    assert ok is False
+    assert conns["opened"] == []
+
+
+def test_token_write_without_secret_env_rejected(conns, monkeypatch) -> None:
+    monkeypatch.delenv("FLEX_HOST_TOKEN", raising=False)
+    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
+    ok, target = write_flex_config(CFG, "", None, None)
+    assert ok is False
+    assert target is None
+    assert conns["opened"] == []
+
+
+def test_token_write_with_secret_env_touches_no_db(conns, monkeypatch) -> None:
+    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
+    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
+    ok, target = write_flex_config(CFG, "tok", None, None)
+    assert ok is True
+    assert target == "secret"
+    assert conns["opened"] == []
+
+
+def test_nothing_to_write_is_success_noop(conns) -> None:
+    ok, _ = write_flex_config(CFG, None, None, None)
+    assert ok is True
+    assert conns["opened"] == []

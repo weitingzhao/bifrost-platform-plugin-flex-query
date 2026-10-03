@@ -1,4 +1,4 @@
-"""DDL for bifrost_golden_source.ops_jobs (Flex ingest queue + freshness)."""
+"""DDL for bifrost_golden_source.ops_jobs (Flex ingest queue, freshness, settings)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,27 @@ SCHEMA = "ops_jobs"
 JOB_TABLE = f"{SCHEMA}.job_flex_ingest"
 FRESHNESS_TABLE = f"{SCHEMA}.flex_ingest_freshness"
 HEARTBEAT_TABLE = f"{SCHEMA}.flex_worker_heartbeat"
+# One row (id=1): the cluster-wide auto-range for Flex pulls. Until 0.7.0 these two
+# numbers lived in every Trade env DB's ``settings`` row and were written by a
+# non-atomic fan-out; only bifrost_dev's copy was ever read (TD-74).
+SETTINGS_TABLE = f"{SCHEMA}.flex_settings"
+
+FLEX_SETTINGS_DDL = f"""CREATE TABLE IF NOT EXISTS {SETTINGS_TABLE} (
+        id                      integer     PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        flex_default_range_days integer     NOT NULL DEFAULT 30  CHECK (flex_default_range_days >= 1),
+        flex_init_range_days    integer     NOT NULL DEFAULT 360 CHECK (flex_init_range_days >= 1),
+        updated_at              timestamptz NOT NULL DEFAULT now()
+    )"""
+# Guarded so a table someone else created (and owns) never fails the ensure path.
+FLEX_SETTINGS_COMMENT = f"""DO $$
+    BEGIN
+        IF obj_description('{SETTINGS_TABLE}'::regclass, 'pg_class') IS NULL THEN
+            COMMENT ON TABLE {SETTINGS_TABLE} IS
+                'Flex Query plugin: cluster-wide auto-range for Flex pulls (one row, id=1). '
+                'Replaces per-env Trade settings.flex_*_range_days (TD-74).';
+        END IF;
+    END
+    $$"""
 
 # Idempotent, cheap, and run once per process: an older table grows the columns
 # the 0.6.0 worker needs (deferred retries, error categories, outcome-aware
@@ -41,6 +62,11 @@ _MIGRATIONS: tuple[str, ...] = (
         last_error           text,
         last_error_category  text
     )""",
+    # 0.7.0: range days move here from the Trade env DBs (TD-74). The row is
+    # seeded from the Trade DB the plugin reads (seed_flex_settings), never from
+    # literals; until it exists readers fall back to that Trade DB.
+    FLEX_SETTINGS_DDL,
+    FLEX_SETTINGS_COMMENT,
 )
 _migrated = False
 
@@ -142,6 +168,43 @@ def ensure_flex_ops_schema(
             _migrated = True
             _log("ops_jobs flex columns up to date")
     conn.commit()
+
+
+def _pair(row: Any) -> tuple[Any, Any]:
+    if isinstance(row, Mapping):
+        return row.get("flex_default_range_days"), row.get("flex_init_range_days")
+    return row[0], row[1]
+
+
+def read_flex_settings(conn: Any) -> tuple[int, int] | None:
+    """(default_days, init_days) from the settings row, or None when it is not there yet.
+
+    Raises when the table itself is missing (the caller decides on the fallback).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT flex_default_range_days, flex_init_range_days FROM {SETTINGS_TABLE} WHERE id = 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    default_days, init_days = _pair(row)
+    if default_days is None or init_days is None:
+        return None
+    return max(1, int(default_days)), max(1, int(init_days))
+
+
+def seed_flex_settings(conn: Any, default_days: int, init_days: int) -> bool:
+    """Insert the settings row once; an existing row always wins. True when this call inserted it."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO {SETTINGS_TABLE} (id, flex_default_range_days, flex_init_range_days) "
+            f"VALUES (1, %s, %s) ON CONFLICT (id) DO NOTHING",
+            (max(1, int(default_days)), max(1, int(init_days))),
+        )
+        inserted = getattr(cur, "rowcount", 0) == 1
+    conn.commit()
+    return inserted
 
 
 def record_freshness(

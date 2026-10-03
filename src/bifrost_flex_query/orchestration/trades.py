@@ -12,9 +12,9 @@ from bifrost_flex_query.client.flex_client import fetch_trades, parse_trades_xml
 from bifrost_flex_query.orchestration.config_rw import (
     get_flex_config,
     get_flex_executions_stats,
-    get_flex_range_days,
     open_trade_conn,
     postgres_ready,
+    resolve_flex_range_days,
 )
 from bifrost_flex_query.orchestration.notify import publish_flex_executions_system_message
 from bifrost_flex_query.orchestration.utils import rows_span
@@ -159,7 +159,7 @@ def fetch_flex_trades_and_upsert_executions(
         range_days = None
         if from_date is None and to_date is None:
             stats_before = get_flex_executions_stats(conn)
-            default_days, init_days = get_flex_range_days(conn)
+            default_days, init_days = resolve_flex_range_days(config, conn)
             yesterday = date.today() - timedelta(days=1)
             to_date = yesterday.strftime("%Y%m%d")
             max_date = stats_before.get("max_date") if stats_before else None

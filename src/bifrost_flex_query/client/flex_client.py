@@ -424,7 +424,7 @@ def parse_trades_xml(xml_body: str) -> List[Dict[str, Any]]:
     """
     Parse Flex statement XML Trades section and return list of execution-like dicts.
 
-    每条 dict 形状适配 write_account_executions_to_db / PostgreSQLSink.write_account_executions：
+    每条 dict 形状适配 write_account_executions_to_db / TradingDaemonSink.write_account_executions：
     - 基本字段：account_id, time(Unix s), symbol, sec_type, side, quantity, price, source, exec_id, expiry,
       strike, option_right, exchange, order_id, contract_key, 以及若干 Flex 扩展字段（见 DATABASE.md §2.11）。
     - Commission / realized PnL：填入 commission, currency, realized_pnl，由上层写入 account_execution_commissions。

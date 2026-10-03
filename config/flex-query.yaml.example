@@ -5,16 +5,13 @@ postgres:
   user: bifrost
   password: ""           # set via POSTGRES_PASSWORD env (make sync-dev-env)
 
-# Per-env Trade DB (Flex tokens in public.settings). Override FLEX_TRADE_PG_*.
-# token_dbnames: Save fans out IB-level tokens to every Trade env DB.
+# Trade env DB the plugin reads (query ids via FDW, execution stats). Read-only since
+# 0.7.0: range days live in Golden Source ops_jobs.flex_settings (TD-74); tokens live
+# in the K8s Secret. Override FLEX_TRADE_PG_*.
 trade_postgres:
   host: 192.168.10.73
   port: 30432
   dbname: bifrost_dev
-  token_dbnames:
-    - bifrost_dev
-    - bifrost_stg
-    - bifrost_prod
   user: bifrost
   password: ""
 
