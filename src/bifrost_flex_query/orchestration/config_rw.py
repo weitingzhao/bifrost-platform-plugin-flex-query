@@ -351,34 +351,25 @@ def get_flex_executions_stats(conn: Any) -> Dict[str, Any]:
         return {"count": 0, "accounts": 0, "min_date": None, "max_date": None}
 
 
-def _flex_token_column_value(token: str) -> Optional[str]:
-    return token.strip() or None
-
-
 def write_flex_config(
     status_config: dict,
-    host_token: Optional[str],
-    secondary_token: Optional[str],
     accounts: Optional[List[Dict[str, Any]]] = None,
     flex_default_range_days: Optional[int] = None,
     flex_init_range_days: Optional[int] = None,
-) -> tuple[bool, Optional[str]]:
+) -> bool:
     """Write range days and/or replace the query rows, in one Golden Source transaction.
 
     Range days go to ``ops_jobs.flex_settings``; ``accounts`` replace
     ``raw_broker.settings_flex``. Either both land or neither does. The Trade env
     DBs are no longer written (TD-74).
 
-    Tokens are never persisted here: they live in the K8s Secret (``FLEX_HOST_TOKEN``
-    / ``FLEX_SECONDARY_TOKEN``, Wave 11). A write that carries token fields is
-    accepted only when that Secret is configured, and reports it as the target.
-
-    Returns ``(ok, token_write_target)`` where ``token_write_target`` is
-    ``secret`` when Secret/env is canonical, or ``None`` when no token fields
-    were in the write.
+    Tokens are not written here at all (0.8.0, TD-83): they live only in the K8s Secret
+    ``bifrost-flex-tokens`` (``FLEX_HOST_TOKEN`` / ``FLEX_SECONDARY_TOKEN``, Wave 11),
+    set with ``make sync-flex-tokens``; the HTTP route refuses token fields with 409.
+    Returns whether the write landed (nothing to write is success).
     """
     if not postgres_ready(status_config):
-        return False, None
+        return False
     valid_accounts: Optional[List[Dict[str, Any]]]
     if accounts is None:
         valid_accounts = None
@@ -389,27 +380,14 @@ def write_flex_config(
             if isinstance(a, dict) and (a.get("query_host_id") or "").strip()
         ]
         if not valid_accounts:
-            return False, None
-
-    token_write_target: Optional[str] = None
-    secret_canonical = bool(
-        (os.environ.get(_ENV_HOST_TOKEN) or "").strip()
-        or (os.environ.get(_ENV_SECONDARY_TOKEN) or "").strip()
-    )
-    token_fields_requested = host_token is not None or secondary_token is not None
-
-    if token_fields_requested and not secret_canonical:
-        logger.warning("write_flex_config: token write rejected — configure K8s Secret env")
-        return False, None
-    if token_fields_requested and secret_canonical:
-        token_write_target = "secret"
+            return False
 
     days_val = max(1, int(flex_default_range_days)) if flex_default_range_days is not None else None
     init_val = max(1, int(flex_init_range_days)) if flex_init_range_days is not None else None
     range_requested = days_val is not None or init_val is not None
 
     if not range_requested and valid_accounts is None:
-        return True, token_write_target
+        return True
 
     golden = None
     try:
@@ -455,12 +433,11 @@ def write_flex_config(
                     )
         golden.commit()
         logger.info(
-            "write_flex_config: range=%s gs_rows=%s token_write_target=%s",
+            "write_flex_config: range=%s gs_rows=%s",
             None if not range_requested else (days_val, init_val),
             None if valid_accounts is None else len(valid_accounts),
-            token_write_target,
         )
-        return True, token_write_target
+        return True
     except Exception as e:
         logger.warning("write_flex_config failed: %s", e)
         if golden is not None:
@@ -468,7 +445,7 @@ def write_flex_config(
                 golden.rollback()
             except Exception:
                 pass
-        return False, token_write_target
+        return False
     finally:
         if golden is not None:
             golden.close()

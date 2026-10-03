@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from bifrost_flex_query.api.app import create_app
@@ -240,23 +241,19 @@ def test_config_write_http(monkeypatch: Any) -> None:
 
     def _fake_write(
         status_config: dict[str, Any],
-        host_token: str | None,
-        secondary_token: str | None,
         accounts: list[dict[str, Any]] | None,
         flex_default_range_days: int | None = None,
         flex_init_range_days: int | None = None,
-    ) -> tuple[bool, str | None]:
+    ) -> bool:
         calls.append(
             {
                 "dbname": (status_config.get("postgres") or {}).get("dbname"),
-                "host_token": host_token,
-                "secondary_token": secondary_token,
                 "accounts": accounts,
                 "days": flex_default_range_days,
                 "init": flex_init_range_days,
             }
         )
-        return True, "secret"
+        return True
 
     monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
     monkeypatch.setattr(
@@ -268,8 +265,6 @@ def test_config_write_http(monkeypatch: Any) -> None:
         "/flex/config/write",
         headers=GATEWAY,
         json={
-            "host_token": "tok",
-            "secondary_token": "",
             "accounts": [{"query_host_id": "999", "purpose": "trades"}],
             "flex_default_range_days": 14,
             "flex_init_range_days": 180,
@@ -277,17 +272,44 @@ def test_config_write_http(monkeypatch: Any) -> None:
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["ok"] is True
-    assert body["accounts"][0]["query_host_id"] == "999"
-    assert body["token_dbnames"] == []
-    assert body["token_write_target"] == "secret"
-    assert body["flex_default_range_days"] == 14
+    assert body == {
+        "ok": True,
+        "accounts": [{"query_host_id": "999", "query_secondary_id": None, "query_label": None, "purpose": "trades"}],
+        "flex_default_range_days": 14,
+        "flex_init_range_days": 180,
+    }
     # One call: range days and query rows land in one Golden Source transaction.
     assert len(calls) == 1
-    assert calls[0]["host_token"] == "tok"
     assert calls[0]["days"] == 14
     assert calls[0]["init"] == 180
     assert calls[0]["accounts"][0]["query_host_id"] == "999"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"host_token": "tok-made-up-0001"},
+        {"secondary_token": ""},
+        {"host_token": None, "accounts": [{"query_host_id": "999"}]},
+        {"secondary_token": "tok-made-up-0002", "flex_default_range_days": 14},
+    ],
+)
+def test_a_token_field_is_409_and_nothing_is_written(monkeypatch: Any, body: dict[str, Any]) -> None:
+    """TD-83 (0.8.0): tokens live only in the K8s Secret. Any token key, whatever its value,
+    is refused before the writer runs, and the token is never echoed back."""
+    from bifrost_flex_query.api import config_summary as mod
+
+    called: list[Any] = []
+    monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
+    monkeypatch.setattr(
+        "bifrost_flex_query.orchestration.config_rw.write_flex_config", lambda *a, **k: called.append(a) or True
+    )
+    r = TestClient(create_app()).post("/flex/config/write", headers=GATEWAY, json=body)
+    assert r.status_code == 409
+    assert r.json() == {"detail": mod.TOKENS_NOT_STORED}
+    assert "make sync-flex-tokens" in r.json()["detail"]
+    assert "tok-made-up" not in r.text
+    assert called == []
 
 
 def test_config_write_empty_body_400() -> None:
@@ -308,7 +330,7 @@ def test_config_write_without_gateway_401() -> None:
     client = TestClient(create_app())
     r = client.post(
         "/flex/config/write",
-        json={"host_token": "tok", "accounts": [{"query_host_id": "1"}]},
+        json={"accounts": [{"query_host_id": "1"}]},
     )
     assert r.status_code == 401
 
@@ -318,7 +340,7 @@ def test_config_write_failure_http(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(mod, "load_config", lambda: FANOUT_CFG)
     monkeypatch.setattr(
-        "bifrost_flex_query.orchestration.config_rw.write_flex_config", lambda *a, **k: (False, None)
+        "bifrost_flex_query.orchestration.config_rw.write_flex_config", lambda *a, **k: False
     )
 
     client = TestClient(create_app())

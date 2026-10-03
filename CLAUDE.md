@@ -56,7 +56,7 @@ Read priority for Flex tokens:
 1. Env `FLEX_HOST_TOKEN` / `FLEX_SECONDARY_TOKEN` (K8s Secret `bifrost-flex-tokens`, `envFrom`)
 2. Empty (`none`)
 
-`GET /flex/config/summary` exposes `source` (`secret` | `none`). Token writes via `/flex/config/write` require Secret env; Trade DB token columns were dropped in core **0.18.0**.
+`GET /flex/config/summary` exposes `source` (`secret` | `none`), the masked last four and `issued_at` / `age_days`. **0.8.0 (TD-83):** `POST /flex/config/write` answers **409** for any `host_token` / `secondary_token` key and never echoes a token; tokens are set only with `make sync-flex-tokens` (Secret `bifrost-flex-tokens`). Trade DB token columns were dropped in core **0.18.0**.
 
 ## 依赖
 

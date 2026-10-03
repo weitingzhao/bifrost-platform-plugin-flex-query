@@ -110,9 +110,8 @@ def _upsert(gs: _Conn) -> Tuple[str, Any]:
 
 def test_range_only_updates_gs_row_and_not_trade(conns) -> None:
     conns["gs"].settings_row = (30, 270)
-    ok, target = write_flex_config(CFG, None, None, None, 14, None)
+    ok = write_flex_config(CFG, None, 14, None)
     assert ok is True
-    assert target is None
     sql, params = _upsert(conns["gs"])
     assert "ON CONFLICT (id) DO UPDATE" in sql
     # Insert half only matters when the row is absent; the update keeps init (NULL → COALESCE).
@@ -127,7 +126,7 @@ def test_range_only_updates_gs_row_and_not_trade(conns) -> None:
 def test_first_write_before_seed_keeps_trade_value_for_other_half(conns) -> None:
     conns["gs"].settings_row = None
     conns["trade"].trade_row = (30, 270)
-    ok, _ = write_flex_config(CFG, None, None, None, 14, None)
+    ok = write_flex_config(CFG, None, 14, None)
     assert ok is True
     _, params = _upsert(conns["gs"])
     assert params == (14, 270, 14, None)
@@ -136,13 +135,9 @@ def test_first_write_before_seed_keeps_trade_value_for_other_half(conns) -> None
     assert conns["trade"].closed is True
 
 
-def test_range_and_accounts_share_one_transaction(conns, monkeypatch) -> None:
-    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
-    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
-    ok, target = write_flex_config(
+def test_range_and_accounts_share_one_transaction(conns) -> None:
+    ok = write_flex_config(
         CFG,
-        "tok",
-        "",
         [
             {
                 "query_host_id": "111",
@@ -155,7 +150,6 @@ def test_range_and_accounts_share_one_transaction(conns, monkeypatch) -> None:
         180,
     )
     assert ok is True
-    assert target == "secret"
     gs = conns["gs"]
     _, params = _upsert(gs)
     assert params == (14, 180, 14, 180)
@@ -171,7 +165,7 @@ def test_range_and_accounts_share_one_transaction(conns, monkeypatch) -> None:
 def test_query_row_failure_rolls_back_range_too(conns) -> None:
     conns["gs"].settings_row = (30, 270)
     conns["gs"].fail_on = "INSERT INTO raw_broker"
-    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "111", "purpose": "trades"}], 14, 180)
+    ok = write_flex_config(CFG, [{"query_host_id": "111", "purpose": "trades"}], 14, 180)
     assert ok is False
     gs = conns["gs"]
     _upsert(gs)  # the range statement ran ...
@@ -183,14 +177,14 @@ def test_query_row_failure_rolls_back_range_too(conns) -> None:
 def test_range_failure_leaves_query_rows_untouched(conns) -> None:
     conns["gs"].settings_row = (30, 270)
     conns["gs"].fail_on = "INSERT INTO ops_jobs.flex_settings"
-    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "111", "purpose": "trades"}], 14, None)
+    ok = write_flex_config(CFG, [{"query_host_id": "111", "purpose": "trades"}], 14, None)
     assert ok is False
     assert "DELETE FROM" not in conns["gs"].sql()
     assert conns["gs"].commits == 0
 
 
 def test_accounts_only_does_not_touch_settings(conns) -> None:
-    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "111", "purpose": "trades"}])
+    ok = write_flex_config(CFG, [{"query_host_id": "111", "purpose": "trades"}])
     assert ok is True
     assert "flex_settings" not in conns["gs"].sql()
     conns["ensure"].assert_not_called()
@@ -198,36 +192,26 @@ def test_accounts_only_does_not_touch_settings(conns) -> None:
 
 
 def test_empty_accounts_refuses_without_delete(conns) -> None:
-    ok, _ = write_flex_config(CFG, "tok", None, [])
+    ok = write_flex_config(CFG, [])
     assert ok is False
     assert conns["opened"] == []
 
 
 def test_blank_query_host_accounts_refuses(conns) -> None:
-    ok, _ = write_flex_config(CFG, None, None, [{"query_host_id": "  ", "purpose": "trades"}])
+    ok = write_flex_config(CFG, [{"query_host_id": "  ", "purpose": "trades"}])
     assert ok is False
     assert conns["opened"] == []
 
 
-def test_token_write_without_secret_env_rejected(conns, monkeypatch) -> None:
-    monkeypatch.delenv("FLEX_HOST_TOKEN", raising=False)
-    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
-    ok, target = write_flex_config(CFG, "", None, None)
-    assert ok is False
-    assert target is None
-    assert conns["opened"] == []
+def test_the_writer_takes_no_tokens() -> None:
+    """0.8.0 (TD-83): tokens live only in the K8s Secret; the writer has no way to take one."""
+    import inspect
 
-
-def test_token_write_with_secret_env_touches_no_db(conns, monkeypatch) -> None:
-    monkeypatch.setenv("FLEX_HOST_TOKEN", "tok")
-    monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
-    ok, target = write_flex_config(CFG, "tok", None, None)
-    assert ok is True
-    assert target == "secret"
-    assert conns["opened"] == []
+    params = set(inspect.signature(write_flex_config).parameters)
+    assert not {"host_token", "secondary_token"} & params
 
 
 def test_nothing_to_write_is_success_noop(conns) -> None:
-    ok, _ = write_flex_config(CFG, None, None, None)
+    ok = write_flex_config(CFG, None)
     assert ok is True
     assert conns["opened"] == []

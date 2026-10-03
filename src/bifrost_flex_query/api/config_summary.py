@@ -1,4 +1,10 @@
-"""Flex config summary (read) and write (query rows + range days; tokens stay in the Secret)."""
+"""Flex config summary (read) and write (query rows + range days; tokens stay in the Secret).
+
+Tokens are read from the K8s Secret ``bifrost-flex-tokens`` only and are set with
+``make sync-flex-tokens``. Since 0.8.0 (TD-83, decision D11-A) the write refuses a token
+field with 409 instead of answering ``ok`` without storing it, and no answer carries a
+token: the summary shows the last four characters and the issued age.
+"""
 
 from __future__ import annotations
 
@@ -117,20 +123,27 @@ def normalize_flex_accounts(raw: Any) -> list[dict[str, Any]]:
 
 _TOKEN_FIELDS = ("host_token", "secondary_token")
 _RANGE_FIELDS = ("flex_default_range_days", "flex_init_range_days")
-_WRITE_FIELDS = (*_TOKEN_FIELDS, "accounts", *_RANGE_FIELDS)
+_WRITE_FIELDS = ("accounts", *_RANGE_FIELDS)
+
+TOKENS_NOT_STORED = (
+    "Flex tokens are not stored by this endpoint. "
+    "Set them in the K8s Secret bifrost-flex-tokens (make sync-flex-tokens)."
+)
 
 
 @router.post("/write", dependencies=[Depends(require_config_write_identity)])
 def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, Any]:
     """Persist range days (``ops_jobs.flex_settings``) and query rows (``raw_broker.settings_flex``).
 
-    Both are in Golden Source and land in one transaction: all or nothing. Tokens
-    are not persisted here (they live in the K8s Secret, see ``write_flex_config``);
-    a token field only reports ``token_write_target``.
+    Both are in Golden Source and land in one transaction: all or nothing. A body that
+    names ``host_token`` or ``secondary_token`` -- whatever the value, null included --
+    is 409 before anything is written: tokens live only in the K8s Secret (TD-83).
     """
     from bifrost_flex_query.orchestration.config_rw import write_flex_config
 
     payload = body or {}
+    if any(key in payload for key in _TOKEN_FIELDS):
+        raise HTTPException(status_code=409, detail=TOKENS_NOT_STORED)
     if not any(key in payload for key in _WRITE_FIELDS):
         raise HTTPException(status_code=400, detail="empty flex config write")
 
@@ -145,33 +158,17 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
     else:
         accounts = None
 
-    host_token = payload.get("host_token") if "host_token" in payload else None
-    secondary_token = payload.get("secondary_token") if "secondary_token" in payload else None
     default_days = _optional_days(payload.get("flex_default_range_days"))
     init_days = _optional_days(payload.get("flex_init_range_days"))
-    host_arg = None if host_token is None else str(host_token)
-    secondary_arg = None if secondary_token is None else str(secondary_token)
 
     cfg = load_config()
-    ok, token_write_target = write_flex_config(
-        trade_config_for_core(cfg),
-        host_arg,
-        secondary_arg,
-        accounts,
-        default_days,
-        init_days,
-    )
+    ok = write_flex_config(trade_config_for_core(cfg), accounts, default_days, init_days)
     if not ok:
         raise HTTPException(status_code=500, detail="failed to write flex config")
+    # 0.8.0: no token echo, no token_write_target, no token_dbnames (empty since 0.7.0).
     return {
         "ok": True,
-        "host_token": (str(host_token).strip() or None) if host_token is not None else None,
-        "secondary_token": (str(secondary_token).strip() or None) if secondary_token is not None else None,
         "accounts": accounts,
         "flex_default_range_days": default_days,
         "flex_init_range_days": init_days,
-        "token_write_target": token_write_target,
-        # 0.6.x listed the Trade DBs the range fanned out to; nothing is fanned out
-        # since 0.7.0 (TD-74). Kept empty for one version, then removed.
-        "token_dbnames": [],
     }
