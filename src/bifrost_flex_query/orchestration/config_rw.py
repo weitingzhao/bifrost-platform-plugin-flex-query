@@ -14,8 +14,8 @@ from bifrost_core.persistence.postgres.brokerage_tables import (
     SETTINGS_FLEX,
 )
 from bifrost_core.persistence.postgres.connection import (
-    _get_conn_params,
-    _get_golden_source_conn_params,
+    get_conn_params,
+    get_golden_source_conn_params,
 )
 from psycopg2.extras import RealDictCursor
 
@@ -77,7 +77,7 @@ def open_trade_conn(config: dict) -> Any:
     try:
         return psycopg2.connect(**trade_postgres_connect_kwargs(config))
     except Exception:
-        return psycopg2.connect(**_get_conn_params(config))
+        return psycopg2.connect(**get_conn_params(config))
 
 
 def postgres_ready(config: Optional[dict]) -> bool:
@@ -296,7 +296,7 @@ def write_flex_config(
     golden = None
     try:
         if sets:
-            params = _get_conn_params(status_config)
+            params = get_conn_params(status_config)
             conn = psycopg2.connect(**params)
             with conn.cursor() as cur:
                 cur.execute(
@@ -305,7 +305,7 @@ def write_flex_config(
                 )
             conn.commit()
         if valid_accounts is not None:
-            gs_params = _get_golden_source_conn_params(status_config)
+            gs_params = get_golden_source_conn_params(status_config)
             golden = psycopg2.connect(**{**gs_params, "connect_timeout": 10})
             with golden.cursor() as cur:
                 cur.execute(f"DELETE FROM {GOLDEN_SETTINGS_FLEX}")

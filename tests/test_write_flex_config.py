@@ -54,11 +54,11 @@ def _patch_connect(trade: _Conn, gs: _Conn):
             side_effect=fake_connect,
         ),
         patch(
-            "bifrost_flex_query.orchestration.config_rw._get_conn_params",
+            "bifrost_flex_query.orchestration.config_rw.get_conn_params",
             return_value={"dbname": "trade"},
         ),
         patch(
-            "bifrost_flex_query.orchestration.config_rw._get_golden_source_conn_params",
+            "bifrost_flex_query.orchestration.config_rw.get_golden_source_conn_params",
             return_value={"dbname": "gs"},
         ),
     )
