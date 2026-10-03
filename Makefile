@@ -31,11 +31,23 @@ run-worker:
 kustomize-check:
 	kubectl kustomize k8s/base >/dev/null
 
+# The image installs core from this sibling checkout as it is on disk, uncommitted and
+# untracked files included, so the build refuses a dirty one (TD-37). Point CORE_DIR at
+# a clean checkout of the intended commit; the commit is recorded as an image label.
+CORE_DIR ?= ../bifrost-trade-core
+VERSION := $(shell sed -n 's/^version *= *"\([^"]*\)".*/\1/p' pyproject.toml | head -n 1)
+
 docker-build:
-	docker build --platform linux/amd64 -t bifrost-flex-query:0.6.3 \
-	  --build-context core=../bifrost-trade-core \
+	@test -z "$$(git -C $(CORE_DIR) status --porcelain)" || { \
+	  echo "$(CORE_DIR) has uncommitted or untracked files; the image would ship them." >&2; \
+	  echo "Build from a clean core checkout on the intended commit (make docker-build CORE_DIR=...)." >&2; \
+	  exit 1; }
+	@echo "flex-query $(VERSION) with bifrost-core $$(git -C $(CORE_DIR) rev-parse HEAD)"
+	docker build --platform linux/amd64 -t bifrost-flex-query:$(VERSION) \
+	  --build-context core=$(CORE_DIR) \
+	  --label io.bifrost.core.sha=$$(git -C $(CORE_DIR) rev-parse HEAD) \
 	  -f Dockerfile .
-	docker tag bifrost-flex-query:0.6.3 192.168.10.73:30500/bifrost-flex-query:0.6.3
-	docker tag bifrost-flex-query:0.6.3 192.168.10.73:30500/bifrost-flex-query:latest
-	docker push 192.168.10.73:30500/bifrost-flex-query:0.6.3
+	docker tag bifrost-flex-query:$(VERSION) 192.168.10.73:30500/bifrost-flex-query:$(VERSION)
+	docker tag bifrost-flex-query:$(VERSION) 192.168.10.73:30500/bifrost-flex-query:latest
+	docker push 192.168.10.73:30500/bifrost-flex-query:$(VERSION)
 	docker push 192.168.10.73:30500/bifrost-flex-query:latest

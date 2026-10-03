@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bifrost-flex-query"
-version = "0.6.4"
+version = "0.6.5"
 description = "Bifrost IB Flex Query Plugin — scheduled Flex ingest into brokerage.*"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,7 +23,9 @@ dev = [
   "ruff>=0.8",
 ]
 runtime = [
-  "bifrost-core",
+  # 0.34.0 published get_conn_params / get_golden_source_conn_params, which
+  # orchestration/config_rw.py imports (TD-20); nothing older resolves every import (TD-37).
+  "bifrost-core>=0.34.0",
 ]
 
 [project.scripts]

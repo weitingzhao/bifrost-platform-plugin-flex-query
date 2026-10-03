@@ -81,6 +81,15 @@ make db-init
 make run-api    # :8791
 ```
 
+## 发版检查
+
+- 版本：`pyproject.toml` 与 `src/bifrost_flex_query/__init__.py` 同步 bump；`make docker-build` 的镜像 tag 直接读 `pyproject.toml`。
+- **兄弟目录的 core checkout 必须干净、且在预期的提交上再构建**：`make docker-build` 用 `--build-context core=../bifrost-trade-core`
+  （可用 `CORE_DIR=` 覆盖），按磁盘原样安装 core——别的会话未提交、未跟踪的改动都会进镜像。目标会在 `git status --porcelain`
+  非空时拒绝构建，并把 core 的 commit 写进镜像 label `io.bifrost.core.sha`；发版说明里记下这个 SHA。
+- core 下限 `bifrost-core>=0.34.0`（公开的 `get_conn_params` / `get_golden_source_conn_params`，TD-20）；import 了更新的
+  core 名字时同步抬高（TD-37）。
+
 ## 修改纪律
 
 - 公开 Flex 队列 / coverage 契约变更需同步 Ops Console catalog
