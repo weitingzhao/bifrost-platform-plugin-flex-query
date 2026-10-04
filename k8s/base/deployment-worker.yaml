@@ -36,6 +36,28 @@ spec:
                   name: flex-query-secrets
                   key: postgres-host
                   optional: true
+            # D6 (2026-10-04): the login, next to its passwords, so a switch or a rollback is one
+            # Secret patch. One key names the role on all three connections (ops_jobs queue, Golden
+            # Source raw_broker writes through core, the Trade database read). Absent key -> the
+            # ConfigMap's user lines.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: postgres-user
+                  optional: true
+            - name: GOLDEN_SOURCE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: postgres-user
+                  optional: true
+            - name: FLEX_TRADE_PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flex-query-secrets
+                  key: postgres-user
+                  optional: true
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
