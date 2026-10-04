@@ -165,7 +165,7 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
     ok = write_flex_config(trade_config_for_core(cfg), accounts, default_days, init_days)
     if not ok:
         raise HTTPException(status_code=500, detail="failed to write flex config")
-    # 0.8.0: no token echo, no token_write_target, no token_dbnames (empty since 0.7.0).
+    # 0.8.0: no token echo, no token_write_target.
     return {
         "ok": True,
         "accounts": accounts,

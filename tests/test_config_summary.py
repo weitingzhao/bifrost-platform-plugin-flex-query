@@ -206,8 +206,6 @@ FANOUT_CFG = {
     "trade_postgres": {
         "host": "db",
         "dbname": "bifrost_dev",
-        # 0.6.x fanned range writes out to these; 0.7.0 ignores the key (TD-74).
-        "token_dbnames": ["bifrost_dev", "bifrost_stg", "bifrost_prod"],
     },
     "golden_source": {"host": "db", "database": "bifrost_golden_source"},
 }
