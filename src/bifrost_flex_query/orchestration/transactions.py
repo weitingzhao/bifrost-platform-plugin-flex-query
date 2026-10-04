@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from bifrost_core.monitor.reader import upsert_account_transactions
+from bifrost_core.portfolio.reader.accounts import upsert_account_transactions
 
 from bifrost_flex_query.client.flex_client import fetch_cash_transactions
 from bifrost_flex_query.orchestration.config_rw import (

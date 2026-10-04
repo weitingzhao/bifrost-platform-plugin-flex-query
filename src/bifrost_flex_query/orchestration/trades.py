@@ -6,7 +6,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from bifrost_core.monitor.reader import write_account_executions_to_db
+from bifrost_core.portfolio.reader.accounts import write_account_executions_to_db
 
 from bifrost_flex_query.client.flex_client import fetch_trades, parse_trades_xml
 from bifrost_flex_query.orchestration.config_rw import (

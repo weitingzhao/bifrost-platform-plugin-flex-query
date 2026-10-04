@@ -89,6 +89,9 @@ make run-api    # :8791
   非空时拒绝构建，并把 core 的 commit 写进镜像 label `io.bifrost.core.sha`；发版说明里记下这个 SHA。
 - core 下限 `bifrost-core>=0.34.0`（公开的 `get_conn_params` / `get_golden_source_conn_params`，TD-20）；import 了更新的
   core 名字时同步抬高（TD-37）。
+- **只用 core 的规范模块路径**（0.8.1，TD-80 C1-a）：accounts 写函数从 `bifrost_core.portfolio.reader.accounts` 导入，
+  不经 `bifrost_core.monitor.reader` 的包级再导出；`tests/test_core_alias_imports.py` 拦回退。core 0.46.0（C1-b）删这些别名，
+  所以兄弟目录的 core 一旦到 0.46.0，只有 0.8.1 及以后的 flex checkout 能构建（更早的在 import 时失败）。
 
 ## 修改纪律
 
