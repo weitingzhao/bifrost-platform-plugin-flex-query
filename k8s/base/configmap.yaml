@@ -10,19 +10,19 @@ data:
       host: bifrost-postgres-rw.data.svc.cluster.local
       port: 5432
       dbname: bifrost_golden_source
-      user: bifrost
+      user: flex_writer
       password: ""
     trade_postgres:
       host: bifrost-postgres-rw.data.svc.cluster.local
       port: 5432
       dbname: bifrost_dev
-      user: bifrost
+      user: flex_writer
       password: ""
     golden_source:
       host: bifrost-postgres-rw.data.svc.cluster.local
       port: 5432
       database: bifrost_golden_source
-      user: bifrost
+      user: flex_writer
       password: ""
     worker:
       poll_interval_sec: 5
