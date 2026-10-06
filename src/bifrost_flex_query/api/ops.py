@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from bifrost_flex_query.api.deps import db_conn
+from bifrost_flex_query.ops.coverage import read_coverage
 from bifrost_flex_query.ops.diagnose import CheckInput, KindInput, diagnose
 from bifrost_flex_query.orchestration.config_rw import flex_tokens_issued_at, resolve_flex_tokens
 from bifrost_flex_query.scheduler.cronutil import next_fires, previous_fire
@@ -74,6 +75,14 @@ def collect_check_input(conn: Any, *, now: datetime | None = None) -> CheckInput
             conn.rollback()
             data_latest[name] = None
 
+    coverage: dict[str, Any] | None = None
+    coverage_error: str | None = None
+    try:
+        coverage = read_coverage(conn)
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        coverage_error = " ".join(str(exc).split())[:200] or type(exc).__name__
+
     kinds: list[KindInput] = []
     for slot, kind in SLOT_KIND.items():
         scfg = dict(slots.get(slot) or {})
@@ -111,6 +120,8 @@ def collect_check_input(conn: Any, *, now: datetime | None = None) -> CheckInput
         cooldown_until=cd.get("until") if isinstance(cd, dict) else None,
         catchup_enabled=(os.environ.get("FLEX_CATCHUP_DISABLED") or "").strip() not in ("1", "true", "yes"),
         worker_poll_sec=float(worker_cfg.get("poll_interval_sec") or 5),
+        coverage=coverage,
+        coverage_error=coverage_error,
     )
 
 

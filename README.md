@@ -54,10 +54,28 @@ account failed is not `done` (the upsert makes the retry free). Stale
 - Manual trigger (`/flex/ingest/trigger`) now sends **one request per account**;
   pass `fallback: true` to re-enable the query-default / period=5 widening.
 
+## Fetch windows (0.10.0)
+
+Neither scheduled kind asks for a fixed "last N days": a fixed window can never
+refill an outage longer than N days.
+
+- **flex-trades** — `from = yesterday - (days since the newest stored execution + default days)`.
+- **flex-transactions** — `from = min(oldest per-account last stored cash day, yesterday - default days)`,
+  counting only accounts that also have Flex executions (TD-88). The last stored
+  day is fetched again; the upsert makes the overlap free.
+- A window longer than one IB request may span (IB caps fd..td near a year) is
+  sent as consecutive chunks of at most 364 days each. An explicit
+  `from_date`/`to_date` payload is honoured and chunked the same way.
+- Default / init days live in `ops_jobs.flex_settings`.
+
 ## Observability
 
 - `GET /metrics` — Prometheus text: last success per kind, last job status /
-  category, next retry, queue counts, planned fires, data age, token age.
+  category, next retry, queue counts, planned fires, data age, token age, and
+  `bifrost_flex_coverage_gap_months{account}` — closed months with Flex
+  executions but no cash transactions (should be 0).
+- The self-check's `coverage` entry lists those account-months by name and turns
+  the overall verdict to `attention`.
   Scraped by the `bifrost-flex-query` ServiceMonitor; alerts live in
   `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml`.
 - `GET /flex/dashboard/freshness-kpis` — `last_run` is the newest **job**

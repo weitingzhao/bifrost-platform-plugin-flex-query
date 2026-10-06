@@ -23,6 +23,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
+from bifrost_flex_query.ops.coverage import coverage_check
+
 VERDICT_ORDER = ("failed", "missed", "throttled", "waiting", "running", "queued", "ok", "idle", "unknown")
 HEARTBEAT_STALE_SEC = 180
 
@@ -50,6 +52,9 @@ class CheckInput:
     cooldown_until: datetime | None = None
     catchup_enabled: bool = True
     worker_poll_sec: float = 5.0
+    coverage: Mapping[str, Any] | None = None
+    """read_coverage() output; None with no coverage_error = not collected (no check)."""
+    coverage_error: str | None = None
 
 
 @dataclass
@@ -363,6 +368,8 @@ def _checks(inp: CheckInput) -> list[dict[str, Any]]:
         if table == "executions_raw_flex" and (inp.now - d).total_seconds() > 7 * 86400:
             stale = True
     out.append({"id": "data", "ok": not stale, "detail": "; ".join(parts) or "—"})
+    if inp.coverage is not None or inp.coverage_error:
+        out.append(coverage_check(inp.coverage, inp.coverage_error))
     return out
 
 

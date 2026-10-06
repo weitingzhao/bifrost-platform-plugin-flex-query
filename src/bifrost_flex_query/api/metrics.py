@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 
 from bifrost_flex_query import __version__
 from bifrost_flex_query.api.deps import db_conn
+from bifrost_flex_query.ops.coverage import gap_months_by_account, read_coverage
 from bifrost_flex_query.orchestration.config_rw import flex_tokens_issued_at, resolve_flex_tokens
 from bifrost_flex_query.scheduler.cronutil import next_fires, previous_fire
 from bifrost_flex_query.scheduler.daily import SLOT_KIND, load_schedule, schedule_timezone
@@ -107,6 +108,16 @@ def render_metrics(snap: Mapping[str, Any]) -> str:
         if ts is not None:
             out.append(_line("bifrost_flex_data_latest_timestamp_seconds", ts, {"table": r["table"]}))
 
+    cov = snap.get("coverage")
+    if cov is not None:
+        head(
+            "bifrost_flex_coverage_gap_months",
+            "gauge",
+            "Closed months with Flex executions but no cash transactions, per account (should be 0).",
+        )
+        for acct, n in sorted(gap_months_by_account(cov).items()):
+            out.append(_line("bifrost_flex_coverage_gap_months", int(n), {"account": acct}))
+
     hb = snap.get("heartbeat") or {}
     if hb.get("seen_at") is not None:
         head("bifrost_flex_worker_last_seen_timestamp_seconds", "gauge", "When the worker last reported in.")
@@ -164,6 +175,12 @@ def collect_metrics(conn: Any, *, now: datetime | None = None) -> dict[str, Any]
         except Exception:
             conn.rollback()
     snap["data"] = data
+
+    try:
+        snap["coverage"] = read_coverage(conn)
+    except Exception:
+        conn.rollback()
+        snap["coverage"] = None
 
     schedule = load_schedule()
     scheduler_cfg = dict(schedule.get("scheduler") or {})

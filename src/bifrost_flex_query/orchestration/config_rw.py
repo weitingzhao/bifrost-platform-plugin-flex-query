@@ -311,12 +311,6 @@ def _range_dates(days: int) -> Tuple[str, str]:
     return start.strftime("%Y%m%d"), yesterday.strftime("%Y%m%d")
 
 
-def get_flex_default_range_dates(config: dict, trade_conn: Any) -> Tuple[str, str]:
-    """Return (from_date, to_date) in yyyyMMdd. to_date = yesterday."""
-    days, _ = resolve_flex_range_days(config, trade_conn)
-    return _range_dates(days)
-
-
 def get_flex_init_range_dates(config: dict, trade_conn: Any) -> Tuple[str, str]:
     """Return (from_date, to_date) in yyyyMMdd for initial/full pull. to_date = yesterday."""
     _, days = resolve_flex_range_days(config, trade_conn)
