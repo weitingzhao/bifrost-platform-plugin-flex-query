@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from bifrost_flex_query.config import load_config, postgres_connect_kwargs
-from bifrost_flex_query.orchestration.config_rw import ensure_flex_settings_seeded
 from bifrost_flex_query.schema.ddl import ensure_flex_ops_schema
 
 
@@ -15,7 +14,6 @@ def main() -> int:
     conn = psycopg2.connect(**postgres_connect_kwargs(cfg))
     try:
         ensure_flex_ops_schema(conn, log=print)
-        print(f"ops_jobs.flex_settings: {ensure_flex_settings_seeded(conn, cfg)}")
     finally:
         conn.close()
     return 0

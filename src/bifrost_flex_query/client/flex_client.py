@@ -348,8 +348,10 @@ def parse_cash_transactions_xml(xml_body: str) -> List[Dict[str, Any]]:
         s = date_time_str.strip()
         for fmt in ("%Y%m%d;%H%M%S", "%Y%m%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
-                # Use slice so we don't pass extra chars (e.g. timezone) that break parsing
-                n = 19 if "T" in fmt or " " in fmt else 8
+                # Use slice so we don't pass extra chars (e.g. timezone) that break parsing.
+                # yyyyMMdd;HHmmss is cut to its date on purpose (see above); a bare ISO date
+                # needs its 10 characters (it was cut to 8 and fell through to now()).
+                n = 19 if "T" in fmt or " " in fmt else (10 if "-" in fmt else 8)
                 ts_parsed = datetime.strptime(s[:n], fmt)
                 if ts_parsed.tzinfo is None:
                     ts_parsed = ts_parsed.replace(tzinfo=timezone.utc)

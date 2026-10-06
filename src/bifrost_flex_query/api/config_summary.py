@@ -12,8 +12,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from bifrost_flex_query.api.deps import db_conn, require_config_write_identity, trade_db_conn
-from bifrost_flex_query.config import load_config, trade_config_for_core
+from bifrost_flex_query.api.deps import db_conn, require_config_write_identity
+from bifrost_flex_query.config import core_config, load_config
 
 router = APIRouter(prefix="/flex/config", tags=["config"])
 
@@ -33,15 +33,15 @@ def _blank_to_none(value: Any) -> str | None:
 
 
 @router.get("/summary")
-def config_summary(
-    gs_conn: Any = Depends(db_conn),
-    trade_conn: Any = Depends(trade_db_conn),
-) -> dict[str, Any]:
+def config_summary(gs_conn: Any = Depends(db_conn)) -> dict[str, Any]:
     from bifrost_flex_query.orchestration.config_rw import get_flex_range_days, resolve_flex_tokens
 
     host_tok, sec_tok, host_src, sec_src = resolve_flex_tokens()
-    # ops_jobs.flex_settings (TD-74); the Trade DB row only until that is seeded.
-    default_days, init_days = get_flex_range_days(trade_conn, gs_conn)
+    # ops_jobs.flex_settings (TD-74); a failed read is a 503, not the defaults (TD-116).
+    try:
+        default_days, init_days = get_flex_range_days(gs_conn)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"flex settings unreadable: {exc}") from exc
 
     query_rows: list[dict[str, Any]] = []
     try:
@@ -162,7 +162,7 @@ def write_flex_config_endpoint(body: dict[str, Any] | None = None) -> dict[str, 
     init_days = _optional_days(payload.get("flex_init_range_days"))
 
     cfg = load_config()
-    ok = write_flex_config(trade_config_for_core(cfg), accounts, default_days, init_days)
+    ok = write_flex_config(core_config(cfg), accounts, default_days, init_days)
     if not ok:
         raise HTTPException(status_code=500, detail="failed to write flex config")
     # 0.8.0: no token echo, no token_write_target.

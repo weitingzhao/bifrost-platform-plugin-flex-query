@@ -9,8 +9,7 @@ from fastapi.testclient import TestClient
 
 from bifrost_flex_query.api.app import create_app
 from bifrost_flex_query.api.config_summary import config_summary, mask_token_last4
-from bifrost_flex_query.api.deps import db_conn, trade_db_conn
-from bifrost_flex_query.config import trade_postgres_connect_kwargs
+from bifrost_flex_query.api.deps import db_conn
 
 
 class _Cursor:
@@ -24,9 +23,6 @@ class _Cursor:
         if "ops_jobs.flex_settings" in q:
             self.parent._one = self.parent.flex_settings
             self.parent._rows = [self.parent.flex_settings] if self.parent.flex_settings else []
-        elif "from settings" in q:
-            self.parent._one = self.parent.settings
-            self.parent._rows = [self.parent.settings] if self.parent.settings else []
         elif "settings_flex" in q:
             self.parent._rows = list(self.parent.flex_rows)
             self.parent._one = self.parent.flex_rows[0] if self.parent.flex_rows else None
@@ -51,12 +47,10 @@ class _Conn:
     def __init__(
         self,
         *,
-        settings: dict[str, Any] | None = None,
         flex_rows: list[dict[str, Any]] | None = None,
         flex_settings: dict[str, Any] | None = None,
         raise_on_execute: bool = False,
     ) -> None:
-        self.settings = settings
         self.flex_settings = flex_settings
         self.flex_rows = flex_rows or []
         self.raise_on_execute = raise_on_execute
@@ -79,25 +73,6 @@ def test_mask_token_last4() -> None:
     assert mask_token_last4("secretTOKEN12") == "EN12"
 
 
-def test_trade_postgres_connect_kwargs_from_cfg() -> None:
-    kw = trade_postgres_connect_kwargs(
-        {
-            "trade_postgres": {
-                "host": "db.lan",
-                "port": 30432,
-                "dbname": "bifrost_dev",
-                "user": "bifrost",
-                "password": "x",
-            }
-        }
-    )
-    assert kw["host"] == "db.lan"
-    assert kw["port"] == 30432
-    assert kw["dbname"] == "bifrost_dev"
-    assert kw["user"] == "bifrost"
-    assert kw["password"] == "x"
-
-
 def test_config_summary_masks_tokens_and_query_rows(monkeypatch) -> None:
     monkeypatch.delenv("FLEX_HOST_TOKEN", raising=False)
     monkeypatch.delenv("FLEX_SECONDARY_TOKEN", raising=False)
@@ -105,13 +80,8 @@ def test_config_summary_masks_tokens_and_query_rows(monkeypatch) -> None:
 
     mod._token_source_logged = False
 
-    trade = _Conn(
-        settings={
-            "flex_default_range_days": 14,
-            "flex_init_range_days": 180,
-        }
-    )
     gs = _Conn(
+        flex_settings={"flex_default_range_days": 14, "flex_init_range_days": 180},
         flex_rows=[
             {
                 "purpose": "trades",
@@ -127,7 +97,7 @@ def test_config_summary_masks_tokens_and_query_rows(monkeypatch) -> None:
             },
         ]
     )
-    body = config_summary(gs_conn=gs, trade_conn=trade)
+    body = config_summary(gs_conn=gs)
     assert body["tokens"]["host_token_set"] is False
     assert body["source"] == "none"
     assert body["tokens"]["host_source"] == "none"
@@ -139,23 +109,26 @@ def test_config_summary_masks_tokens_and_query_rows(monkeypatch) -> None:
     assert body["query_rows"][1]["query_secondary_id"] == "789013"
 
 
-def test_config_summary_empty_on_query_error() -> None:
-    trade = _Conn(raise_on_execute=True)
+def test_config_summary_unreadable_settings_is_503() -> None:
+    """TD-116 (0.11.0): a failed range-days read is an error, not the defaults."""
+    from fastapi import HTTPException
+
     gs = _Conn(raise_on_execute=True)
-    body = config_summary(gs_conn=gs, trade_conn=trade)
-    assert trade.rolled_back == 1
-    # flex_settings read + query-row read
-    assert gs.rolled_back == 2
-    assert body["tokens"]["host_token_set"] is False
-    assert body["query_rows"] == []
-    assert body["range_days"]["default"] == 30
+    with pytest.raises(HTTPException) as exc:
+        config_summary(gs_conn=gs)
+    assert exc.value.status_code == 503
+    assert gs.rolled_back == 1
+
+
+def test_config_summary_defaults_without_settings_row() -> None:
+    """A cluster without the ops_jobs.flex_settings row shows the defaults (first write creates it)."""
+    body = config_summary(gs_conn=_Conn(flex_settings=None))
+    assert body["range_days"] == {"default": 30, "init": 360}
 
 
 def test_config_summary_range_from_gs_settings_row() -> None:
-    """Once ops_jobs.flex_settings is seeded it wins over the Trade DB row (TD-74)."""
-    trade = _Conn(settings={"flex_default_range_days": 14, "flex_init_range_days": 180})
     gs = _Conn(flex_settings={"flex_default_range_days": 21, "flex_init_range_days": 400})
-    body = config_summary(gs_conn=gs, trade_conn=trade)
+    body = config_summary(gs_conn=gs)
     assert body["range_days"] == {"default": 21, "init": 400}
 
 
@@ -180,16 +153,7 @@ def test_config_summary_http_override(monkeypatch) -> None:
             ]
         )
 
-    def _trade() -> Any:
-        yield _Conn(
-            settings={
-                "flex_default_range_days": 30,
-                "flex_init_range_days": 360,
-            }
-        )
-
     app.dependency_overrides[db_conn] = _gs
-    app.dependency_overrides[trade_db_conn] = _trade
     client = TestClient(app)
     r = client.get("/flex/config/summary")
     assert r.status_code == 200
@@ -203,10 +167,7 @@ def test_config_summary_http_override(monkeypatch) -> None:
 GATEWAY = {"X-Bifrost-Trade-Gateway": "1"}
 
 FANOUT_CFG = {
-    "trade_postgres": {
-        "host": "db",
-        "dbname": "bifrost_dev",
-    },
+    "postgres": {"host": "db", "dbname": "bifrost_golden_source"},
     "golden_source": {"host": "db", "database": "bifrost_golden_source"},
 }
 

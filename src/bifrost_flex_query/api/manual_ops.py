@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from bifrost_flex_query.api.deps import db_conn, require_write_token
-from bifrost_flex_query.config import load_config, trade_config_for_core
+from bifrost_flex_query.config import core_config, load_config
 from bifrost_flex_query.scheduler.enqueue import insert_manual_job
 from bifrost_flex_query.schema.ddl import ensure_flex_ops_schema, record_freshness
 from bifrost_flex_query.worker.claim import mark_done, mark_failed
@@ -80,7 +80,7 @@ def trigger_flex_fetch(
     # who wants the wide net says fallback: true.
     payload.setdefault("fallback", False)
     cfg = load_config()
-    core_cfg = trade_config_for_core(cfg)
+    core_cfg = core_config(cfg)
     job_id = _audit_start(conn, job_kind, {"source": "trigger", **payload})
 
     if kind == "trades":
@@ -110,7 +110,7 @@ def upload_flex_xml(
         raise HTTPException(status_code=400, detail="Missing 'xml' field in request body")
 
     cfg = load_config()
-    core_cfg = trade_config_for_core(cfg)
+    core_cfg = core_config(cfg)
     job_id = _audit_start(conn, "flex-trades", {"source": "upload-xml", "bytes": len(xml_str)})
     result = dict(upsert_executions_from_uploaded_flex_xml(core_cfg, xml_str))
     _audit_finish(conn, "flex-trades", job_id, result)

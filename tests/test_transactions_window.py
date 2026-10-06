@@ -75,7 +75,6 @@ def _run(body: Optional[Dict[str, Any]], last: Dict[str, date]) -> tuple[dict, L
     flex_list = [{"token": "t1", "query_id": "q1"}, {"token": "t2", "query_id": "q2"}]
     with (
         patch.object(tx, "postgres_ready", return_value=True),
-        patch.object(tx, "open_trade_conn", return_value=MagicMock()),
         patch.object(tx, "get_flex_config", return_value=flex_list),
         patch.object(tx, "resolve_flex_range_days", return_value=(30, 270)),
         patch.object(tx, "open_golden_conn", return_value=MagicMock()),

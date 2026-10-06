@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Any, Mapping
 
-from bifrost_flex_query.config import postgres_connect_kwargs, trade_config_for_core
+from bifrost_flex_query.config import core_config, postgres_connect_kwargs
 from bifrost_flex_query.schema.ddl import record_freshness
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def _require_ok(result: Mapping[str, Any] | None, *, label: str) -> dict[str, An
 def handle_flex_trades(payload: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
     from bifrost_flex_query.orchestration.trades import fetch_flex_trades_and_upsert_executions
 
-    core_cfg = trade_config_for_core(dict(config))
+    core_cfg = core_config(dict(config))
     result = fetch_flex_trades_and_upsert_executions(core_cfg, dict(payload))
     return _require_ok(result, label="flex-trades")
 
@@ -42,7 +42,7 @@ def handle_flex_trades(payload: Mapping[str, Any], config: Mapping[str, Any]) ->
 def handle_flex_transactions(payload: Mapping[str, Any], config: Mapping[str, Any]) -> dict[str, Any]:
     from bifrost_flex_query.orchestration.transactions import fetch_cash_transactions_from_flex
 
-    core_cfg = trade_config_for_core(dict(config))
+    core_cfg = core_config(dict(config))
     result = fetch_cash_transactions_from_flex(core_cfg, dict(payload))
     return _require_ok(result, label="flex-transactions")
 

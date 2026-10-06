@@ -47,7 +47,7 @@
 - **本 repo**: 独立进程、独立 K8s namespace `plugin-flex-query`；Flex HTTPS 客户端 + 编排引擎内化在 `bifrost_flex_query.client` / `orchestration`
 - **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
 - **数据**: 写 `raw_broker.executions_raw_flex` / `raw_broker.transactions`；队列在 Golden Source `ops_jobs.*`
-- **Trade DB 只读**: `brokerage.settings_flex` FDW 读 query id；Flex token 只在 K8s Secret（Wave 11）；抓取区间（range days）0.7.0 起在 GS `ops_jobs.flex_settings`（单行，与 `raw_broker.settings_flex` 同事务写，TD-74），Trade `settings.flex_*_range_days` 只用于首次种子与种子前的回落读 — **不在 Trade DB 建 flex_ops，也不写 Trade DB**
+- **只连 Golden Source（0.11.0 起，TD-116）**：query id 读 `raw_broker.settings_flex`、range days 读 `ops_jobs.flex_settings`（单行，与 `raw_broker.settings_flex` 同事务写，TD-74；无行时用默认 30/360）、成交统计读 `raw_broker.executions_raw_flex`（按 `trade_date`）。读失败一律抛错、任务失败重试，**不再回落**（此前经 `bifrost_dev` 的 FDW 视图读，统计读失败会当成 0 行把 trades 扩成 270 天 init 窗口）。导入后的 `last_flex_date_after` 在写入提交后另开连接读（TD-117）。ConfigMap / Deployment 不再有 `trade_postgres` / `FLEX_TRADE_PG_*`；Secret 里的 `trade-pg-*` 键不再被读。Flex token 只在 K8s Secret（Wave 11）— **不连任何 Trade env DB**
 - **flex_ops.***: **DEPRECATED** (Wave 6.3) compat views on Golden Source → use `ops_jobs.*` directly
 
 ## Token source (Wave 11 / 0.5.1)
@@ -66,7 +66,7 @@ bifrost-flex-query
   └── bifrost-trade-core   (write_account_executions_to_db / upsert_account_transactions / connection helpers)
 ```
 
-Flex token / query_id 由本包 `orchestration.config_rw` 读写（env Secret + `brokerage.settings_flex` query rows）。
+Flex token / query_id 由本包 `orchestration.config_rw` 读写（env Secret + Golden Source `raw_broker.settings_flex` query rows）。
 
 ## 命令
 
@@ -74,6 +74,7 @@ Flex token / query_id 由本包 `orchestration.config_rw` 读写（env Secret + 
 make install-dev
 make lint
 make test
+make test-db    # db-marked tests on a throwaway postgres in Docker (TD-117)
 make db-init
 # Legacy Trade DB cleanup (if flex_ops was ever created on bifrost_dev):
 #   psql -U postgres -d bifrost_dev -f scripts/drop_trade_flex_ops_legacy.sql

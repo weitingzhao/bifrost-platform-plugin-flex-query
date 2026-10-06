@@ -1,4 +1,4 @@
-.PHONY: install-dev test lint db-init run-api run-worker kustomize-check docker-build sync-dev-env sync-k8s-secrets sync-flex-tokens
+.PHONY: install-dev test test-db lint db-init run-api run-worker kustomize-check docker-build sync-dev-env sync-k8s-secrets sync-flex-tokens
 
 install-dev:
 	pip install -e "../bifrost-trade-core"
@@ -14,7 +14,11 @@ sync-flex-tokens:
 	bash scripts/sync_flex_tokens.sh
 
 test:
-	PYTHONPATH=src pytest -q
+	PYTHONPATH=src pytest -q -m 'not db'
+
+# db-marked tests against a throwaway postgres in Docker (scripts/test_db.sh).
+test-db:
+	bash scripts/test_db.sh
 
 lint:
 	ruff check src tests scripts

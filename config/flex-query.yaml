@@ -1,5 +1,5 @@
 # No secrets in this file (public repo): passwords come from env (POSTGRES_PASSWORD,
-# FLEX_TRADE_PG_PASSWORD, GOLDEN_SOURCE_PASSWORD) or a gitignored copy; tokens from the K8s Secret.
+# GOLDEN_SOURCE_PASSWORD) or a gitignored copy; tokens from the K8s Secret.
 postgres:
   host: 192.168.10.73
   port: 30432
@@ -7,12 +7,6 @@ postgres:
   user: bifrost
   password: ""
 
-trade_postgres:
-  host: 192.168.10.73
-  port: 30432
-  dbname: bifrost_dev
-  user: bifrost
-  password: ""
 
 golden_source:
   host: 192.168.10.73

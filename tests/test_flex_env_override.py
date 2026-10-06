@@ -105,14 +105,8 @@ def test_config_summary_source_secret(monkeypatch) -> None:
 
     mod._token_source_logged = False
 
-    trade = _Conn(
-        settings={
-            "flex_default_range_days": 30,
-            "flex_init_range_days": 360,
-        }
-    )
     gs = _Conn(flex_rows=[])
-    body = config_summary(gs_conn=gs, trade_conn=trade)
+    body = config_summary(gs_conn=gs)
     assert body["source"] == "secret"
     assert body["tokens"]["host_source"] == "secret"
     assert body["tokens"]["host_token_last4"] == "9999"

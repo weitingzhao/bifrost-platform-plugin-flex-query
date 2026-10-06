@@ -36,10 +36,10 @@ spec:
                   name: flex-query-secrets
                   key: postgres-host
                   optional: true
-            # D6 (2026-10-04): the login, next to its passwords, so a switch or a rollback is one
-            # Secret patch. One key names the role on all three connections (ops_jobs queue, Golden
-            # Source raw_broker writes through core, the Trade database read). Absent key -> the
-            # ConfigMap's user lines.
+            # D6 (2026-10-04): the login, next to its password, so a switch or a rollback is one
+            # Secret patch. One key names the role on both connections (ops_jobs queue, Golden
+            # Source raw_broker reads and writes through core). Absent key -> the ConfigMap's user
+            # lines. No Trade env database since 0.11.0 (TD-116): the trade-pg-* keys are unused.
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
@@ -52,35 +52,11 @@ spec:
                   name: flex-query-secrets
                   key: postgres-user
                   optional: true
-            - name: FLEX_TRADE_PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: flex-query-secrets
-                  key: postgres-user
-                  optional: true
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: flex-query-secrets
                   key: postgres-password
-                  optional: true
-            - name: FLEX_TRADE_PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: flex-query-secrets
-                  key: trade-pg-host
-                  optional: true
-            - name: FLEX_TRADE_PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: flex-query-secrets
-                  key: trade-pg-password
-                  optional: true
-            - name: FLEX_TRADE_PG_DB
-              valueFrom:
-                secretKeyRef:
-                  name: flex-query-secrets
-                  key: trade-pg-db
                   optional: true
           envFrom:
             - secretRef:

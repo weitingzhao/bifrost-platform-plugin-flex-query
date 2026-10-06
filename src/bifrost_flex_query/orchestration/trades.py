@@ -12,9 +12,10 @@ from bifrost_flex_query.client.flex_client import fetch_trades, parse_trades_xml
 from bifrost_flex_query.orchestration.config_rw import (
     get_flex_config,
     get_flex_executions_stats,
-    open_trade_conn,
+    get_flex_range_days,
+    open_golden_conn,
     postgres_ready,
-    resolve_flex_range_days,
+    read_flex_executions_stats,
 )
 from bifrost_flex_query.orchestration.notify import publish_flex_executions_system_message
 from bifrost_flex_query.orchestration.utils import rows_span
@@ -126,7 +127,9 @@ def fetch_flex_trades_and_upsert_executions(
         return {"ok": False, "error": "PostgreSQL is required to write account_executions.", "count": 0}
     conn = None
     try:
-        conn = open_trade_conn(config)
+        # Golden Source only (TD-116): query rows, range days and execution stats. Each read
+        # ends its transaction; a failed read raises and fails the run.
+        conn = open_golden_conn(config)
         entries: List[Dict[str, Any]] = []
         flex_list = get_flex_config(conn, purpose="trades")
         for a in flex_list:
@@ -159,7 +162,7 @@ def fetch_flex_trades_and_upsert_executions(
         range_days = None
         if from_date is None and to_date is None:
             stats_before = get_flex_executions_stats(conn)
-            default_days, init_days = resolve_flex_range_days(config, conn)
+            default_days, init_days = get_flex_range_days(conn)
             yesterday = date.today() - timedelta(days=1)
             to_date = yesterday.strftime("%Y%m%d")
             max_date = stats_before.get("max_date") if stats_before else None
@@ -315,7 +318,9 @@ def fetch_flex_trades_and_upsert_executions(
         updated_accounts = len(
             {(r.get("account_id") or "").strip() for r in all_rows if (r.get("account_id") or "").strip()}
         )
-        stats_after = get_flex_executions_stats(conn)
+        # Read after the writer committed, on a fresh connection: through the Trade DB's FDW in
+        # the run's open transaction this saw the previous run's data (TD-117).
+        stats_after = read_flex_executions_stats(config)
         last_date_after = stats_after.get("max_date") if stats_after else None
         last_date_after_str = None
         if last_date_after is not None:

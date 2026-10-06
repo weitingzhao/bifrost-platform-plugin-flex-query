@@ -34,9 +34,6 @@ kubectl create secret generic flex-query-secrets \
   --namespace plugin-flex-query \
   --from-literal=postgres-host=bifrost-postgres-rw.data.svc.cluster.local \
   --from-literal=postgres-password="$PGPASSWORD" \
-  --from-literal=trade-pg-host=bifrost-postgres-rw.data.svc.cluster.local \
-  --from-literal=trade-pg-password="$PGPASSWORD" \
-  --from-literal=trade-pg-db=bifrost_dev \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl rollout restart deployment/flex-query-api deployment/flex-query-worker -n plugin-flex-query

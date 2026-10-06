@@ -5,15 +5,6 @@ postgres:
   user: bifrost
   password: ""           # set via POSTGRES_PASSWORD env (make sync-dev-env)
 
-# Trade env DB the plugin reads (query ids via FDW, execution stats). Read-only since
-# 0.7.0: range days live in Golden Source ops_jobs.flex_settings (TD-74); tokens live
-# in the K8s Secret. Override FLEX_TRADE_PG_*.
-trade_postgres:
-  host: 192.168.10.73
-  port: 30432
-  dbname: bifrost_dev
-  user: bifrost
-  password: ""
 
 golden_source:
   host: 192.168.10.73

@@ -67,6 +67,10 @@ refill an outage longer than N days.
   sent as consecutive chunks of at most 364 days each. An explicit
   `from_date`/`to_date` payload is honoured and chunked the same way.
 - Default / init days live in `ops_jobs.flex_settings`.
+- Since 0.11.0 (TD-116) every read is on Golden Source (`raw_broker.settings_flex`,
+  `ops_jobs.flex_settings`, `raw_broker.executions_raw_flex` by `trade_date`) and a
+  failed read fails the job; none goes through a Trade env database any more. The
+  "latest Flex date" a trades run reports is read after its write commits (TD-117).
 
 ## Observability
 

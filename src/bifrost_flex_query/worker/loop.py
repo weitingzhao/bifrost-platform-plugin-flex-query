@@ -11,7 +11,6 @@ from typing import Any, Callable
 
 from bifrost_flex_query import __version__
 from bifrost_flex_query.config import load_config, postgres_connect_kwargs
-from bifrost_flex_query.orchestration.config_rw import ensure_flex_settings_seeded
 from bifrost_flex_query.scheduler.daily import catchup_grace_sec, load_schedule
 from bifrost_flex_query.schema.ddl import ensure_flex_ops_schema, record_heartbeat
 from bifrost_flex_query.worker.catchup import catchup_missed_slots
@@ -136,8 +135,6 @@ async def run_forever(*, config_path: str | None = None) -> None:
 
     db = WorkerDb(cfg)
     db.call(ensure_flex_ops_schema)
-    # TD-74: copy the Trade DB's range days into ops_jobs.flex_settings once.
-    db.call(ensure_flex_settings_seeded, cfg)
     reclaimed = db.call(reclaim_stale_running, stale_after_sec=stale_sec, requeue_delay_sec=requeue_sec)
     state["stale_reclaimed"] = len(reclaimed)
     heartbeat()

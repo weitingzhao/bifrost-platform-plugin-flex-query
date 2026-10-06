@@ -168,7 +168,7 @@ def _run_ingest(fake: FakeFlex, body: dict) -> dict:
     cfg = {"sink": "postgres", "postgres": {"host": "x"}}
     with (
         patch("bifrost_flex_query.client.flex_client.urlopen", side_effect=fake),
-        patch("bifrost_flex_query.orchestration.trades.open_trade_conn", return_value=MagicMock()),
+        patch("bifrost_flex_query.orchestration.trades.open_golden_conn", return_value=MagicMock()),
         patch(
             "bifrost_flex_query.orchestration.trades.get_flex_config",
             return_value=[{"token": "t", "query_id": "q1", "role": "host", "query_label": "Trades"}],

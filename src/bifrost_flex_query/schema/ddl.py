@@ -62,9 +62,9 @@ _MIGRATIONS: tuple[str, ...] = (
         last_error           text,
         last_error_category  text
     )""",
-    # 0.7.0: range days move here from the Trade env DBs (TD-74). The row is
-    # seeded from the Trade DB the plugin reads (seed_flex_settings), never from
-    # literals; until it exists readers fall back to that Trade DB.
+    # 0.7.0: range days move here from the Trade env DBs (TD-74); 0.7.0 seeded the
+    # row from bifrost_dev, never from literals. Since 0.11.0 (TD-116) nothing reads
+    # a Trade DB: without the row readers use the defaults until the first write.
     FLEX_SETTINGS_DDL,
     FLEX_SETTINGS_COMMENT,
 )
@@ -192,19 +192,6 @@ def read_flex_settings(conn: Any) -> tuple[int, int] | None:
     if default_days is None or init_days is None:
         return None
     return max(1, int(default_days)), max(1, int(init_days))
-
-
-def seed_flex_settings(conn: Any, default_days: int, init_days: int) -> bool:
-    """Insert the settings row once; an existing row always wins. True when this call inserted it."""
-    with conn.cursor() as cur:
-        cur.execute(
-            f"INSERT INTO {SETTINGS_TABLE} (id, flex_default_range_days, flex_init_range_days) "
-            f"VALUES (1, %s, %s) ON CONFLICT (id) DO NOTHING",
-            (max(1, int(default_days)), max(1, int(init_days))),
-        )
-        inserted = getattr(cur, "rowcount", 0) == 1
-    conn.commit()
-    return inserted
 
 
 def record_freshness(

@@ -23,7 +23,6 @@ from bifrost_flex_query.client.flex_client import MAX_FLEX_DAYS, fetch_cash_tran
 from bifrost_flex_query.orchestration.config_rw import (
     get_flex_config,
     open_golden_conn,
-    open_trade_conn,
     postgres_ready,
     resolve_flex_range_days,
 )
@@ -118,8 +117,8 @@ def _parse_yyyymmdd(s: str) -> Optional[date]:
         return None
 
 
-def _scheduled_window(config: dict, trade_conn: Any, today: Optional[date] = None) -> Tuple[date, date, str, int]:
-    default_days, init_days = resolve_flex_range_days(config, trade_conn)
+def _scheduled_window(config: dict, today: Optional[date] = None) -> Tuple[date, date, str, int]:
+    default_days, init_days = resolve_flex_range_days(config)
     gs = open_golden_conn(config)
     try:
         last_dates = read_last_transaction_dates(gs)
@@ -150,7 +149,7 @@ def fetch_cash_transactions_from_flex(
                 "error": "Postgres config required to write account_transactions.",
                 "count": 0,
             }
-        conn = open_trade_conn(config)
+        conn = open_golden_conn(config)
         entries: List[tuple] = []
         flex_list = get_flex_config(conn, purpose="cash_transactions")
         for a in flex_list:
@@ -176,7 +175,7 @@ def fetch_cash_transactions_from_flex(
         range_mode = "manual"
         range_days: Optional[int] = None
         if from_date is None and to_date is None:
-            start, end, range_mode, range_days = _scheduled_window(config, conn)
+            start, end, range_mode, range_days = _scheduled_window(config)
             from_date, to_date = start.strftime(_FMT), end.strftime(_FMT)
         # Explicit and scheduled windows alike go to IB in chunks it accepts; a
         # half-given window is passed through so the client names the mistake.

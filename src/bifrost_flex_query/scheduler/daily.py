@@ -151,10 +151,6 @@ def main(argv: list[str] | None = None) -> int:
         raise last_err if last_err is not None else RuntimeError("postgres connect failed")
     try:
         ensure_flex_ops_schema(conn)
-        # TD-74: retried every slot until ops_jobs.flex_settings is seeded; never raises.
-        from bifrost_flex_query.orchestration.config_rw import ensure_flex_settings_seeded
-
-        ensure_flex_settings_seeded(conn, cfg)
         # Fail-closed: never enqueue when Flex credentials are missing (K8s Job
         # Complete must not mask an empty Secret).
         from bifrost_flex_query.orchestration.config_rw import resolve_flex_tokens

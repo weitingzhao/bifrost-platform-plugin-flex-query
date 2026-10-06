@@ -65,20 +65,6 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     if gs:
         cfg["golden_source"] = gs
 
-    trade = dict(cfg.get("trade_postgres") or {})
-    for key, env_name in (
-        ("host", "FLEX_TRADE_PG_HOST"),
-        ("port", "FLEX_TRADE_PG_PORT"),
-        ("dbname", "FLEX_TRADE_PG_DB"),
-        ("user", "FLEX_TRADE_PG_USER"),
-        ("password", "FLEX_TRADE_PG_PASSWORD"),
-    ):
-        val = os.environ.get(env_name)
-        if val is not None and str(val).strip() != "":
-            trade[key] = int(val) if key == "port" else val
-    if trade:
-        cfg["trade_postgres"] = trade
-
     tok = os.environ.get("FLEX_QUERY_WRITE_TOKEN")
     if tok:
         cfg["write_token"] = tok.strip()
@@ -104,77 +90,27 @@ def postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
-def trade_postgres_connect_kwargs(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Connect kwargs for the Trade env DB the plugin reads (``FLEX_TRADE_PG_*``).
+def core_config(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Shape a config dict that Flex orchestration / core upsert helpers can consume.
 
-    Read-only since 0.7.0: ``brokerage.settings_flex`` query ids (FDW), Flex execution
-    stats, and the pre-0.7.0 range days used to seed ``ops_jobs.flex_settings``.
+    Every database the plugin touches is Golden Source (TD-116, 0.11.0): core's writers
+    open it from ``golden_source`` (``GOLDEN_SOURCE_*`` env first), falling back per field
+    to ``postgres`` -- set here to the plugin's own Golden Source login, so the password
+    comes from ``POSTGRES_PASSWORD``. No Trade env database is named (``trade_config_for_core``
+    before 0.11.0 pointed ``postgres`` at ``bifrost_dev``).
     """
-    data = cfg if cfg is not None else load_config()
-    trade = dict(data.get("trade_postgres") or {})
-    pg = dict(data.get("postgres") or {})
-    return {
-        "host": (
-            trade.get("host")
-            or os.environ.get("FLEX_TRADE_PG_HOST")
-            or pg.get("host")
-            or "localhost"
-        ),
-        "port": int(
-            trade.get("port")
-            or os.environ.get("FLEX_TRADE_PG_PORT")
-            or pg.get("port")
-            or 5432
-        ),
-        "dbname": (
-            trade.get("dbname")
-            or trade.get("database")
-            or os.environ.get("FLEX_TRADE_PG_DB")
-            or "bifrost_dev"
-        ),
-        "user": (
-            trade.get("user")
-            or os.environ.get("FLEX_TRADE_PG_USER")
-            or pg.get("user")
-            or "bifrost"
-        ),
-        "password": (
-            trade.get("password")
-            or os.environ.get("FLEX_TRADE_PG_PASSWORD")
-            or pg.get("password")
-            or ""
-        ),
-    }
-
-
-def trade_config_for_core(
-    cfg: dict[str, Any] | None = None,
-    dbname: str | None = None,
-) -> dict[str, Any]:
-    """Shape a config dict that Flex orchestration / core upsert helpers can consume."""
     data = dict(cfg if cfg is not None else load_config())
-    trade = dict(data.get("trade_postgres") or {})
+    pg = postgres_connect_kwargs(data)
     gs = dict(data.get("golden_source") or {})
-    pg = dict(data.get("postgres") or {})
-    if trade:
-        db = dbname or trade.get("dbname") or trade.get("database")
-        data["postgres"] = {
-            "host": trade.get("host") or pg.get("host"),
-            "port": trade.get("port") or pg.get("port"),
-            "database": db,
-            "dbname": db,
-            "user": trade.get("user") or pg.get("user"),
-            "password": trade.get("password") or pg.get("password"),
-        }
-        data["sink"] = "postgres"
-    if not gs:
-        data["golden_source"] = {
-            "host": pg.get("host"),
-            "port": pg.get("port"),
-            "database": pg.get("dbname") or "bifrost_golden_source",
-            "user": pg.get("user"),
-            "password": pg.get("password"),
-        }
+    data["postgres"] = {**pg, "database": pg["dbname"]}
+    data["golden_source"] = {
+        "host": gs.get("host") or pg["host"],
+        "port": gs.get("port") or pg["port"],
+        "database": gs.get("database") or gs.get("dbname") or pg["dbname"],
+        "user": gs.get("user") or pg["user"],
+        "password": gs.get("password") or pg["password"],
+    }
+    data["sink"] = "postgres"
     if "ib" not in data:
         data["ib"] = {
             "host": {"ip": "127.0.0.1", "port_type": "tws_paper", "client_id": {}},

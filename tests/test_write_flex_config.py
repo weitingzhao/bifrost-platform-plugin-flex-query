@@ -1,7 +1,7 @@
 """write_flex_config: range days + query rows in one Golden Source transaction (TD-74).
 
-Omitted tokens are no-ops; empty accounts refuse the GS DELETE; the Trade env DBs
-are never written.
+Omitted tokens are no-ops; empty accounts refuse the GS DELETE; no Trade env DB is
+written (TD-74) or even opened (TD-116).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pytest
 
 from bifrost_flex_query.orchestration.config_rw import write_flex_config
 
-CFG = {"sink": "postgres", "postgres": {"dbname": "bifrost_dev"}}
+CFG = {"sink": "postgres", "postgres": {"dbname": "bifrost_golden_source"}}
 
 
 class _Cursor:
@@ -123,16 +123,15 @@ def test_range_only_updates_gs_row_and_not_trade(conns) -> None:
     conns["ensure"].assert_called_once()
 
 
-def test_first_write_before_seed_keeps_trade_value_for_other_half(conns) -> None:
+def test_first_write_without_a_row_keeps_the_default_for_the_other_half(conns) -> None:
     conns["gs"].settings_row = None
-    conns["trade"].trade_row = (30, 270)
     ok = write_flex_config(CFG, None, 14, None)
     assert ok is True
     _, params = _upsert(conns["gs"])
-    assert params == (14, 270, 14, None)
-    # The Trade DB is only read, never written.
-    assert all(sql.lstrip().upper().startswith("SELECT") for sql, _ in conns["trade"].calls)
-    assert conns["trade"].closed is True
+    assert params == (14, 360, 14, None)
+    # Only Golden Source is opened (TD-116).
+    assert conns["opened"] == ["gs"]
+    assert conns["trade"].calls == []
 
 
 def test_range_and_accounts_share_one_transaction(conns) -> None:
