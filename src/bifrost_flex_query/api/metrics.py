@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 
 from bifrost_flex_query import __version__
 from bifrost_flex_query.api.deps import db_conn
+from bifrost_flex_query.api.http_metrics import HTTP_METRICS
 from bifrost_flex_query.ops.coverage import gap_months_by_account, read_coverage
 from bifrost_flex_query.orchestration.config_rw import flex_tokens_issued_at, resolve_flex_tokens
 from bifrost_flex_query.scheduler.cronutil import next_fires, previous_fire
@@ -212,5 +213,6 @@ def collect_metrics(conn: Any, *, now: datetime | None = None) -> dict[str, Any]
 @router.get("/metrics", response_class=PlainTextResponse)
 def metrics(conn: Any = Depends(db_conn)) -> str:
     ensure_flex_ops_schema(conn)
-    return render_metrics(collect_metrics(conn))
+    # Request counts and latency for the API alert rules (TD-161).
+    return render_metrics(collect_metrics(conn)) + HTTP_METRICS.render()
 
