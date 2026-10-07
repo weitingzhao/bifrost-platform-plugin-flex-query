@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from bifrost_flex_query.client.flex_client import parse_cash_transactions_xml
 
 ATTRIBUTE_STYLE = """<FlexQueryResponse queryName="Cash" type="AF">
@@ -94,8 +92,7 @@ def test_row_without_account_and_amount_is_dropped() -> None:
     assert parse_cash_transactions_xml(xml) == []
 
 
-@pytest.mark.xfail(strict=True, reason="TD-103: transactionID is read from child elements only")
 def test_attribute_transaction_id_is_kept() -> None:
-    """Flips to a pass when TD-103's parser fix lands; then drop the xfail."""
+    """TD-103: transactionID is an attribute on CashTransaction, not only a child element."""
     rows = parse_cash_transactions_xml(ATTRIBUTE_STYLE)
     assert [r.get("flex_transaction_id") for r in rows] == ["990001", "990002", "990003", "990004"]

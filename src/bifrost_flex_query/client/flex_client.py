@@ -275,6 +275,7 @@ def parse_cash_transactions_xml(xml_body: str) -> List[Dict[str, Any]]:
         report_account_id = (root.get("accountId") or root.get("accountID") or "").strip()
 
     out: List[Dict[str, Any]] = []
+    skipped_dateless = 0
     for elem in root.iter():
         if strip_ns(elem.tag) != "CashTransaction":
             continue
@@ -333,6 +334,11 @@ def parse_cash_transactions_xml(xml_body: str) -> List[Dict[str, Any]]:
             available_for_trading_date = elem.get("availableForTradingDate") or ""
         if not fx_rate_to_base:
             fx_rate_to_base = elem.get("fxRateToBase") or ""
+        # transactionID is the one field the attribute fallback used to skip, so
+        # attribute-style CashTransaction rows stored flex_transaction_id NULL
+        # and same-day same-amount items collapsed on the date-only unique key.
+        if not transaction_id:
+            transaction_id = (elem.get("transactionID") or elem.get("TransactionID") or "").strip()
 
         try:
             amount = float(amount_str.replace(",", ""))
@@ -366,7 +372,10 @@ def parse_cash_transactions_xml(xml_body: str) -> List[Dict[str, Any]]:
                 except ValueError:
                     pass
         if ts_parsed is None:
-            ts_parsed = datetime.now(timezone.utc)
+            # A row with no date used to take ts=now() and was inserted again on
+            # every run (the unique key includes ts). Skip it and count it.
+            skipped_dateless += 1
+            continue
         ts_float = ts_parsed.timestamp()
         tx_type = _normalize_type(flex_type, code, amount)
         # Collect remaining attributes into raw_extra for future use
@@ -419,6 +428,11 @@ def parse_cash_transactions_xml(xml_body: str) -> List[Dict[str, Any]]:
         if raw_extra:
             row["raw_extra"] = raw_extra
         out.append(row)
+    if skipped_dateless:
+        logger.warning(
+            "parse_cash_transactions_xml: skipped %s CashTransaction row(s) with no parseable date",
+            skipped_dateless,
+        )
     return out
 
 
