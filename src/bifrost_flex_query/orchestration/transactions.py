@@ -218,15 +218,34 @@ def fetch_cash_transactions_from_flex(
                 "range_to": to_date,
                 **extra,
             }
-        n = upsert_account_transactions(config, all_rows)
-        msg = f"Upserted {n} transaction(s) from {len(entries)} Flex account(s)."
+        written, skipped = upsert_account_transactions(config, all_rows)
+        # Parsed rows that all got skipped (missing account_id / ts / report_date) are a
+        # failed run, not "upserted 0". A database error raises and is caught below.
+        if written == 0:
+            detail = f"Parsed {len(all_rows)} cash transaction(s) but wrote 0"
+            if skipped:
+                detail += f" ({skipped} skipped)"
+            return {
+                "ok": False,
+                "error": detail + ".",
+                "count": 0,
+                "skipped": skipped,
+                "by_account": len(entries),
+                "range_from": from_date,
+                "range_to": to_date,
+                **extra,
+            }
+        msg = f"Upserted {written} transaction(s) from {len(entries)} Flex account(s)."
+        if skipped:
+            msg += f" Skipped {skipped} row(s)."
         if len(chunks) > 1:
             msg += f" Window {from_date}..{to_date} in {len(chunks)} requests per account."
         if errors:
             msg += " Partial errors: " + "; ".join(errors)
         return {
             "ok": True,
-            "count": n,
+            "count": written,
+            "skipped": skipped,
             "message": msg,
             "errors": errors,
             "by_account": len(entries),

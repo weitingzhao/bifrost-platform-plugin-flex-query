@@ -48,8 +48,6 @@
 - **Trade** (`bifrost-trade-*`): 手动 Flex 按钮走 Trade gateway `/api/plugin/flex-query` → 本 Plugin（配置写入 `POST /flex/config/write`）
 - **数据**: 写 `raw_broker.executions_raw_flex` / `raw_broker.transactions`；队列在 Golden Source `ops_jobs.*`
 - **只连 Golden Source（0.11.0 起，TD-116）**：query id 读 `raw_broker.settings_flex`、range days 读 `ops_jobs.flex_settings`（单行，与 `raw_broker.settings_flex` 同事务写，TD-74；无行时用默认 30/360）、成交统计读 `raw_broker.executions_raw_flex`（按 `trade_date`）。读失败一律抛错、任务失败重试，**不再回落**（此前经 `bifrost_dev` 的 FDW 视图读，统计读失败会当成 0 行把 trades 扩成 270 天 init 窗口）。导入后的 `last_flex_date_after` 在写入提交后另开连接读（TD-117）。ConfigMap / Deployment 不再有 `trade_postgres` / `FLEX_TRADE_PG_*`；Secret 里的 `trade-pg-*` 键不再被读。Flex token 只在 K8s Secret（Wave 11）— **不连任何 Trade env DB**
-- **flex_ops.***: **DEPRECATED** (Wave 6.3) compat views on Golden Source → use `ops_jobs.*` directly
-
 ## Token source (Wave 11 / 0.5.1)
 
 Read priority for Flex tokens:
@@ -76,10 +74,6 @@ make lint
 make test
 make test-db    # db-marked tests on a throwaway postgres in Docker (TD-117)
 make db-init
-# Legacy Trade DB cleanup (if flex_ops was ever created on bifrost_dev):
-#   psql -U postgres -d bifrost_dev -f scripts/drop_trade_flex_ops_legacy.sql
-# Golden Source flex_ops compat views (DEPRECATED Wave 6.3 — use ops_jobs.* directly)
-#   psql -U postgres -d bifrost_golden_source -f scripts/golden_source_flex_ops_compat_views.sql
 make run-api    # :8791
 ```
 
@@ -89,8 +83,8 @@ make run-api    # :8791
 - **兄弟目录的 core checkout 必须干净、且在预期的提交上再构建**：`make docker-build` 用 `--build-context core=../bifrost-trade-core`
   （可用 `CORE_DIR=` 覆盖），按磁盘原样安装 core——别的会话未提交、未跟踪的改动都会进镜像。目标会在 `git status --porcelain`
   非空时拒绝构建，并把 core 的 commit 写进镜像 label `io.bifrost.core.sha`；发版说明里记下这个 SHA。
-- core 下限 `bifrost-core>=0.34.0`（公开的 `get_conn_params` / `get_golden_source_conn_params`，TD-20）；import 了更新的
-  core 名字时同步抬高（TD-37）。
+- core 下限 `bifrost-core>=0.58.0`（`upsert_account_transactions` 返回 `(written, skipped)` 并在写失败时抛错，TD-91；
+  `get_conn_params` 自 0.34.0）。import 了更新的 core 名字时同步抬高（TD-37）。
 - **只用 core 的规范模块路径**（0.8.1，TD-80 C1-a）：accounts 写函数从 `bifrost_core.portfolio.reader.accounts` 导入，
   不经 `bifrost_core.monitor.reader` 的包级再导出；`tests/test_core_alias_imports.py` 拦回退。core 0.46.0（C1-b）删这些别名，
   所以兄弟目录的 core 一旦到 0.46.0，只有 0.8.1 及以后的 flex checkout 能构建（更早的在 import 时失败）。

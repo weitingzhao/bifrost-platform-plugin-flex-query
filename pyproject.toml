@@ -23,9 +23,9 @@ dev = [
   "ruff>=0.8",
 ]
 runtime = [
-  # 0.34.0 published get_conn_params / get_golden_source_conn_params, which
-  # orchestration/config_rw.py imports (TD-20); nothing older resolves every import (TD-37).
-  "bifrost-core>=0.34.0",
+  # 0.58.0: upsert_account_transactions returns (written, skipped) and raises on a
+  # write failure (TD-91). 0.34.0 published get_conn_params / get_golden_source_conn_params.
+  "bifrost-core>=0.58.0",
 ]
 
 [project.scripts]

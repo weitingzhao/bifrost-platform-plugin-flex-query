@@ -9,6 +9,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from bifrost_flex_query.api.metrics import render_metrics
 from bifrost_flex_query.client.flex_client import MAX_FLEX_DAYS
 from bifrost_flex_query.ops.coverage import coverage_check, gap_months_by_account, read_coverage
@@ -80,7 +82,7 @@ def _run(body: Optional[Dict[str, Any]], last: Dict[str, date]) -> tuple[dict, L
         patch.object(tx, "open_golden_conn", return_value=MagicMock()),
         patch.object(tx, "read_last_transaction_dates", return_value=last),
         patch.object(tx, "fetch_cash_transactions", side_effect=fake_fetch),
-        patch.object(tx, "upsert_account_transactions", side_effect=lambda cfg, rows: len(rows)),
+        patch.object(tx, "upsert_account_transactions", side_effect=lambda cfg, rows: (len(rows), 0)),
     ):
         out = tx.fetch_cash_transactions_from_flex({"sink": "postgres"}, body)
     return out, calls
@@ -194,6 +196,31 @@ def test_coverage_gap_turns_the_ops_check_red() -> None:
 
 def test_coverage_check_error_is_not_ok() -> None:
     assert coverage_check(None, "boom")["ok"] is False
+
+
+def test_parsed_rows_with_nothing_written_fails_the_job() -> None:
+    """TD-91: rows > 0 and written == 0 is ok:false, and the handler raises."""
+    from bifrost_flex_query.worker.handlers import _require_ok
+
+    def fake_fetch(token: str, query_id: str, from_date=None, to_date=None) -> List[Dict[str, Any]]:
+        return [{"account_id": "U0000001", "ts": 1.0, "amount": -1.0, "type": "other", "report_date": "20260302"}]
+
+    with (
+        patch.object(tx, "postgres_ready", return_value=True),
+        patch.object(tx, "get_flex_config", return_value=[{"token": "t1", "query_id": "q1"}]),
+        patch.object(tx, "open_golden_conn", return_value=MagicMock()),
+        patch.object(tx, "fetch_cash_transactions", side_effect=fake_fetch),
+        patch.object(tx, "upsert_account_transactions", return_value=(0, 1)),
+    ):
+        out = tx.fetch_cash_transactions_from_flex(
+            {"sink": "postgres"},
+            {"from_date": "20260301", "to_date": "20260302", "fallback": False},
+        )
+    assert out["ok"] is False
+    assert out["count"] == 0
+    assert out["skipped"] == 1
+    with pytest.raises(RuntimeError, match="wrote 0"):
+        _require_ok(out, label="flex-transactions")
 
 
 def test_coverage_metric_per_account() -> None:
