@@ -24,7 +24,14 @@ spec:
   workspaces:
     - name: source
   tasks:
+    - name: release-window
+      taskRef:
+        name: bifrost-release-window
+      params:
+        - name: pipeline
+          value: bifrost-build-flex-query
     - name: clone-plugin
+      runAfter: [release-window]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -38,6 +45,7 @@ spec:
         - name: output
           workspace: source
     - name: clone-core
+      runAfter: [release-window]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
