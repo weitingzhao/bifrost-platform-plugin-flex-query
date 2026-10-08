@@ -18,6 +18,12 @@ data:
       database: bifrost_golden_source
       user: flex_writer
       password: ""
+    # Live Redis bus (same message center as trade-api / Monitor SSE). Env REDIS_* wins
+    # over these fields (bifrost_core.core.redis_url.effective_redis_dict).
+    redis:
+      host: redis-live-prod.data.svc.cluster.local
+      port: 6379
+      db: 0
     worker:
       poll_interval_sec: 5
     write_token: ""
