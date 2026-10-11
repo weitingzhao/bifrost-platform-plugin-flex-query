@@ -24,7 +24,11 @@ spec:
   workspaces:
     - name: source
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     - name: release-window
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-release-window
       params:
