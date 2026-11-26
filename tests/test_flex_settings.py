@@ -101,6 +101,6 @@ def test_ddl_single_row_table_in_migrations() -> None:
     assert "CHECK (id = 1)" in blob
     assert "CHECK (flex_default_range_days >= 1)" in blob
     assert "CHECK (flex_init_range_days >= 1)" in blob
-    # No upper bound (Owner 2026-10-03) and no literal seed values in the DDL.
+    # No upper bound (决定 2026-10-03) and no literal seed values in the DDL.
     assert "<=" not in ddl.FLEX_SETTINGS_DDL
     assert "INSERT" not in blob
